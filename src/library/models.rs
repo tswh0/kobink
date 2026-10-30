@@ -16,6 +16,7 @@ pub struct Book {
     pub description: String,
     pub path: PathBuf,
     pub size: u64,
+    pub fixed_layout: bool,
 }
 
 impl Book {
@@ -28,9 +29,13 @@ impl Book {
     }
 
     pub fn formats(&self) -> &'static [&'static str] {
-        match self.format() {
-            "KEPUB" => &["KEPUB"],
-            _ => &["EPUB3", "EPUB"],
+        if self.fixed_layout {
+            &["EPUB3FL"]
+        } else {
+            match self.format() {
+                "KEPUB" => &["KEPUB"],
+                _ => &["EPUB3", "EPUB"],
+            }
         }
     }
 
@@ -128,6 +133,10 @@ pub fn scan(library_path: &str) -> Vec<Book> {
             .map(|item| item.value.clone())
             .unwrap_or_default();
 
+        let fixed_layout = epub
+            .mdata("rendition:layout")
+            .is_some_and(|item| item.value.trim() == "pre-paginated");
+
         let filename = entry.file_name().to_string_lossy().to_string();
         let id = book_id(&format!("{title}|{author}|{filename}"));
 
@@ -138,6 +147,7 @@ pub fn scan(library_path: &str) -> Vec<Book> {
             description,
             path: entry.path().to_path_buf(),
             size: entry.metadata().map(|metadata| metadata.len()).unwrap_or(0),
+            fixed_layout,
         });
     }
 

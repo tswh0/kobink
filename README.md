@@ -89,6 +89,9 @@ Notes:
   `src/library/models.rs` makes the download host configurable via `PUBLIC_URL` instead of the
   hardcoded `tickets.eggworld.me`; `src/main.rs` no longer declares a `mod models;` whose file
   was never committed upstream (that broke the build).
+- Fixed-layout books (`rendition:layout = pre-paginated`, which is what KCC emits) are
+  advertised as `EPUB3FL`, so the device renders them full-bleed instead of letterboxing
+  fixed pages inside a reflowable text area.
 - The library is rescanned every `LIBRARY_REFRESH_SECONDS` (default 10 minutes); add books and
   wait for the next pass, no restart needed.
 - `.github/workflows/build.yml` runs `cargo check` plus the kobo protocol smoke test on every

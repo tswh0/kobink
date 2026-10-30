@@ -79,7 +79,7 @@ PNG = solid_png(800, 1200, (40, 40, 40))
 root = sys.argv[1]
 
 
-def make_epub(path, title, author):
+def make_epub(path, title, author, layout="reflowable"):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     opf = f"""<?xml version="1.0" encoding="utf-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id">
@@ -89,6 +89,7 @@ def make_epub(path, title, author):
     <dc:creator>{author}</dc:creator>
     <dc:language>en</dc:language>
     <meta property="dcterms:modified">2026-01-01T00:00:00Z</meta>
+    <meta property="rendition:layout">{layout}</meta>
     <meta name="cover" content="cover-img"/>
   </metadata>
   <manifest>
@@ -122,6 +123,13 @@ make_epub(
     f"{root}/R.F. Kuang/Babel - Rebecca F. Kuang (2022).epub",
     "Babel",
     "R.F. Kuang",
+)
+
+make_epub(
+    f"{root}/Oshi no Ko/Oshi no Ko v01.kepub.epub",
+    "Oshi no Ko v01",
+    "Aka Akasaka",
+    layout="pre-paginated",
 )
 PY
 
@@ -158,12 +166,15 @@ field() { printf '%s' "$sync" | jq -r "$1"; }
 blame=$(printf '%s' "$sync" | jq '.[] | select(.NewEntitlement.BookMetadata.Title == "BLAME! Master Edition v01")')
 bval() { printf '%s' "$blame" | jq -r "$1"; }
 
-expect "books synced" "$(field 'length')" 4
-expect "distinct ids" "$(field '[.[].NewEntitlement.BookEntitlement.Id] | unique | length')" 4
+expect "books synced" "$(field 'length')" 5
+expect "distinct ids" "$(field '[.[].NewEntitlement.BookEntitlement.Id] | unique | length')" 5
 expect "kobo timestamp" "$(bval '.NewEntitlement.BookEntitlement.Created' | sed -E 's/[0-9]/N/g')" "NNNN-NN-NNTNN:NN:NNZ"
 expect "series omitted" "$(bval '.NewEntitlement.BookMetadata | has("Series")')" false
 expect "synctoken header" "$(grep -ci '^x-kobo-synctoken: ' sync-headers.txt)" 1
 expect "kepub format" "$(bval '.NewEntitlement.BookMetadata.DownloadUrls | map(.Format) | join(",")')" KEPUB
+
+fixed=$(printf '%s' "$sync" | jq '.[] | select(.NewEntitlement.BookMetadata.Title == "Oshi no Ko v01")')
+expect "fixed layout format" "$(printf '%s' "$fixed" | jq -r '.NewEntitlement.BookMetadata.DownloadUrls | map(.Format) | join(",")')" EPUB3FL
 
 book=$(bval '.NewEntitlement.BookEntitlement.Id')
 url=$(bval '.NewEntitlement.BookMetadata.DownloadUrls[0].Url')
