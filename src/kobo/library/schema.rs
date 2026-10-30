@@ -24,7 +24,7 @@ impl Entitlement {
         let mut new = Self::default(book.id);
         new.BookMetadata.Title = book.title.clone();
         new.BookMetadata.Description = book.description.clone();
-        new.BookMetadata.DownloadUrls = vec![book.download_url()];
+        new.BookMetadata.DownloadUrls = book.download_urls();
         new.BookMetadata.Contributors = book.authors.iter().map(|author| author.clone()).collect();
         new.BookMetadata.ContributorRoles = book
             .authors

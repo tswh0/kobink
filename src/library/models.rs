@@ -27,8 +27,21 @@ impl Book {
         }
     }
 
-    pub fn download_url(&self) -> DownloadUrl {
-        let format = self.format();
+    pub fn formats(&self) -> &'static [&'static str] {
+        match self.format() {
+            "KEPUB" => &["KEPUB"],
+            _ => &["EPUB3", "EPUB"],
+        }
+    }
+
+    pub fn download_urls(&self) -> Vec<DownloadUrl> {
+        self.formats()
+            .iter()
+            .map(|format| self.download_url(format))
+            .collect()
+    }
+
+    pub fn download_url(&self, format: &str) -> DownloadUrl {
         DownloadUrl {
             Format: format.to_string(),
             Size: self.size,
@@ -85,15 +98,23 @@ pub fn book_id(seed: &str) -> Uuid {
 
 pub fn scan(library_path: &str) -> Vec<Book> {
     let mut books = Vec::new();
+    let mut unreadable = 0;
 
     for entry in WalkDir::new(library_path)
         .into_iter()
         .filter_map(|e| e.ok())
         .filter(|e| e.path().extension().is_some_and(|ext| ext == "epub"))
     {
-        let Ok(epub) = EpubDoc::new(entry.path()) else {
-            tracing::info!("failed to load epub at {:?}", entry.path());
-            continue;
+        let epub = match EpubDoc::new(entry.path()) {
+            Ok(epub) => epub,
+            Err(error) => {
+                unreadable += 1;
+                tracing::warn!(
+                    "failed to load epub at {}: {error:?}",
+                    entry.path().display()
+                );
+                continue;
+            }
         };
 
         let title = epub.mdata("title").unwrap_or("Untitled".to_string());
@@ -117,6 +138,11 @@ pub fn scan(library_path: &str) -> Vec<Book> {
         });
     }
 
-    tracing::info!("loaded {} books from {}", books.len(), library_path);
+    tracing::info!(
+        "loaded {} books from {} ({} unreadable)",
+        books.len(),
+        library_path,
+        unreadable
+    );
     books
 }

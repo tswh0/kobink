@@ -77,6 +77,12 @@ for volume in (1, 2, 3):
         f"BLAME! Master Edition v0{volume}",
         "Tsutomu Nihei",
     )
+
+make_epub(
+    f"{root}/R.F. Kuang/Babel - Rebecca F. Kuang (2022).epub",
+    "Babel",
+    "R.F. Kuang",
+)
 PY
 
 "$BIN" > "$LOG" 2>&1 &
@@ -109,15 +115,18 @@ expect "download, no key" "$(code "$BASE/download/x/EPUB/y.epub")" 404
 sync=$(curl -s -D sync-headers.txt "$BASE/$KEY/kobo/v1/library/sync")
 field() { printf '%s' "$sync" | jq -r "$1"; }
 
-expect "books synced" "$(field 'length')" 3
-expect "distinct ids" "$(field '[.[].NewEntitlement.BookEntitlement.Id] | unique | length')" 3
-expect "kobo timestamp" "$(field '.[0].NewEntitlement.BookEntitlement.Created' | sed -E 's/[0-9]/N/g')" "NNNN-NN-NNTNN:NN:NNZ"
-expect "series omitted" "$(field '.[0].NewEntitlement.BookMetadata | has("Series")')" false
-expect "synctoken header" "$(grep -ci '^x-kobo-synctoken: ' sync-headers.txt)" 1
-expect "kepub format" "$(field '.[0].NewEntitlement.BookMetadata.DownloadUrls[0].Format')" KEPUB
+blame=$(printf '%s' "$sync" | jq '.[] | select(.NewEntitlement.BookMetadata.Title == "BLAME! Master Edition v01")')
+bval() { printf '%s' "$blame" | jq -r "$1"; }
 
-book=$(field '.[0].NewEntitlement.BookEntitlement.Id')
-url=$(field '.[0].NewEntitlement.BookMetadata.DownloadUrls[0].Url')
+expect "books synced" "$(field 'length')" 4
+expect "distinct ids" "$(field '[.[].NewEntitlement.BookEntitlement.Id] | unique | length')" 4
+expect "kobo timestamp" "$(bval '.NewEntitlement.BookEntitlement.Created' | sed -E 's/[0-9]/N/g')" "NNNN-NN-NNTNN:NN:NNZ"
+expect "series omitted" "$(bval '.NewEntitlement.BookMetadata | has("Series")')" false
+expect "synctoken header" "$(grep -ci '^x-kobo-synctoken: ' sync-headers.txt)" 1
+expect "kepub format" "$(bval '.NewEntitlement.BookMetadata.DownloadUrls | map(.Format) | join(",")')" KEPUB
+
+book=$(bval '.NewEntitlement.BookEntitlement.Id')
+url=$(bval '.NewEntitlement.BookMetadata.DownloadUrls[0].Url')
 
 expect "metadata" "$(code "$BASE/$KEY/kobo/v1/library/$book/metadata")" 200
 expect "cover" "$(code "$BASE/$KEY/$book/400/600/false/image.jpg")" 200
@@ -130,6 +139,14 @@ expect "download content type" \
 init=$(curl -s "$BASE/$KEY/kobo/v1/initialization")
 expect "image_host" "$(printf '%s' "$init" | jq -r '.Resources.image_host')" "$BASE"
 expect "image_url_template" "$(printf '%s' "$init" | jq -r '.Resources.image_url_template' | grep -c "$KEY")" 1
+
+babel=$(printf '%s' "$sync" | jq '.[] | select(.NewEntitlement.BookMetadata.Title == "Babel")')
+expect "epub formats" "$(printf '%s' "$babel" | jq -r '.NewEntitlement.BookMetadata.DownloadUrls | map(.Format) | join(",")')" "EPUB3,EPUB"
+epub_url=$(printf '%s' "$babel" | jq -r '.NewEntitlement.BookMetadata.DownloadUrls[0].Url')
+expect "epub download" "$(code "$epub_url")" 200
+expect "epub content type" \
+    "$(curl -sI "$epub_url" | tr -d '\r' | awk 'tolower($1)=="content-type:"{print $2}')" \
+    "application/epub+zip"
 
 sleep 4
 refreshes=$(grep -c 'library refreshed' "$LOG" || true)
