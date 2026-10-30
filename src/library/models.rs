@@ -118,13 +118,15 @@ pub fn scan(library_path: &str) -> Vec<Book> {
             }
         };
 
-        let title = epub.mdata("title").unwrap_or("Untitled".to_string());
-
-        // we can use metadata.get("creator") to get multiple authors
+        let title = epub.get_title().unwrap_or_else(|| "Untitled".to_string());
         let author = epub
             .mdata("creator")
-            .unwrap_or("Unknown author".to_string());
-        let description = epub.mdata("description").unwrap_or("".to_string());
+            .map(|item| item.value.clone())
+            .unwrap_or_else(|| "Unknown author".to_string());
+        let description = epub
+            .mdata("description")
+            .map(|item| item.value.clone())
+            .unwrap_or_default();
 
         let filename = entry.file_name().to_string_lossy().to_string();
         let id = book_id(&format!("{title}|{author}|{filename}"));
