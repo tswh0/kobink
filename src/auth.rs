@@ -19,7 +19,7 @@ pub fn log_endpoint() {
 
     info!("--------------------------------------------------------------");
     info!(" api key:      {key}");
-    info!(" api_endpoint: {base}/{key}/kobo/v1");
+    info!(" api_endpoint: {base}/{key}/kobo");
     info!("--------------------------------------------------------------");
 }
 

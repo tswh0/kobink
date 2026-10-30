@@ -17,7 +17,8 @@ pub async fn log_request_response(
     req: Request,
     next: Next,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    let path = &req.uri().path().to_string();
+    let method = req.method().clone();
+    let path = req.uri().path().to_string();
 
     // log iff path does not end with ignored extensions
     let do_log = IGNORED_EXTENSIONS
@@ -29,19 +30,20 @@ pub async fn log_request_response(
             .find(|&ext| path.ends_with(ext))
             .is_none();
 
-    println!("{:?}", req.headers());
     let (req_parts, req_body) = req.into_parts();
 
     // Print request
-    let bytes = buffer_and_print(req_parts.method.as_str(), path, req_body, do_log).await?;
+    let bytes = buffer_and_print(req_parts.method.as_str(), &path, req_body, do_log).await?;
     let req = Request::from_parts(req_parts, Body::from(bytes));
 
     let res = next.run(req).await;
 
     let (mut res_parts, res_body) = res.into_parts();
+    let status = res_parts.status;
+    info!("{method} {path} -> {status}");
 
     // Print response
-    let bytes = buffer_and_print("response", path, res_body, do_log).await?;
+    let bytes = buffer_and_print("response", &path, res_body, do_log).await?;
 
     // When your encoding is chunked there can be problems without removing the header
     res_parts.headers.remove("transfer-encoding");

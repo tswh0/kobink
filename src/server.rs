@@ -36,6 +36,7 @@ pub async fn start_server() {
         .route("/users", post(create_user))
         .nest(&format!("/{api_key}/kobo/v1"), create_kobo_router())
         .nest(&format!("/{api_key}/download"), create_download_router())
+        .fallback(not_found)
         .layer(middleware::from_fn(logging::log_request_response))
         .with_state(Arc::clone(&arcref));
 
@@ -77,6 +78,21 @@ fn spawn_library_refresh(library: Arc<Mutex<LibraryState>>, library_path: &str) 
 // basic handler that responds with a static string
 async fn root() -> &'static str {
     "Hello, World!"
+}
+
+async fn not_found(uri: axum::http::Uri) -> (StatusCode, String) {
+    let path = uri.path();
+
+    if path.contains("/v1/v1/") {
+        return (
+            StatusCode::NOT_FOUND,
+            format!(
+                "no route for {path}: api_endpoint must end at /kobo, the device appends /v1 itself"
+            ),
+        );
+    }
+
+    (StatusCode::NOT_FOUND, format!("no route for {path}"))
 }
 
 async fn create_user(

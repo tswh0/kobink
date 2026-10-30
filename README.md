@@ -6,7 +6,7 @@ Automatically sync local books to your Kobo by pretending to be the Kobo Store
 
 ### Setup
 
-On the Kobo, open `/.kobo/Kobo/Kobo eReader.conf` and change `api_endpoint` to your local machine where Kobink runs (e.g., `http://192.168.0.1:3000`). By default, Kobink runs on port 3000.
+On the Kobo, open `/.kobo/Kobo/Kobo eReader.conf` and change `api_endpoint` to your local machine where Kobink runs (e.g., `http://192.168.0.1:3000/<API_KEY>/kobo` — the key is printed at startup, and the device appends `/v1` itself). By default, Kobink runs on port 3000.
 
 Install dependencies and run:
 
@@ -47,7 +47,7 @@ docker compose logs kobink | grep -A2 "api key"
 ```
 --------------------------------------------------------------
  api key:      9f3c1d0c8b2e4a76b1d5f0a2c7e93b48
- api_endpoint: http://192.168.1.10:3000/9f3c1d0c8b2e4a76b1d5f0a2c7e93b48/kobo/v1
+ api_endpoint: http://192.168.1.10:3000/9f3c1d0c8b2e4a76b1d5f0a2c7e93b48/kobo
 --------------------------------------------------------------
 ```
 
@@ -55,8 +55,11 @@ Point the device at the container, with the key in the path:
 
 ```ini
 [OneStoreServices]
-api_endpoint=http://192.168.1.10:3000/9f3c1d0c8b2e4a76b1d5f0a2c7e93b48/kobo/v1
+api_endpoint=http://192.168.1.10:3000/9f3c1d0c8b2e4a76b1d5f0a2c7e93b48/kobo
 ```
+
+The endpoint ends at `/kobo` — the device appends `/v1` itself. Including it yields `/v1/v1/...`
+and a 404 that says so.
 
 Set `API_KEY` in `.env` instead if you would rather manage the key yourself (e.g. supply a
 reverse proxy config before the first start).
