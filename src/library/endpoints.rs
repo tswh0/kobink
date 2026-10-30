@@ -11,7 +11,7 @@ use axum::{
 use tower::ServiceExt;
 use tower_http::services::ServeFile;
 
-use super::{models::LibraryState, LIBRARY_PATH};
+use super::models::LibraryState;
 
 pub fn create_download_router() -> Router<Arc<Mutex<LibraryState>>> {
     Router::new().route(

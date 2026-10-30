@@ -34,6 +34,13 @@ impl Book {
         }
     }
 
+    pub fn filename(&self) -> String {
+        self.path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default()
+    }
+
     pub fn download_urls(&self) -> Vec<DownloadUrl> {
         self.formats()
             .iter()
@@ -51,13 +58,7 @@ impl Book {
                 api_key(),
                 book_id = self.id,
                 book_format = format,
-                filename = self
-                    .path
-                    .file_name()
-                    .unwrap()
-                    .to_str()
-                    .unwrap()
-                    .replace(" ", "_")
+                filename = self.filename().replace(" ", "_")
             ),
             Platform: "Generic".to_string(),
         }
@@ -134,7 +135,7 @@ pub fn scan(library_path: &str) -> Vec<Book> {
             authors: vec![author],
             description,
             path: entry.path().to_path_buf(),
-            size: entry.metadata().unwrap().len(),
+            size: entry.metadata().map(|metadata| metadata.len()).unwrap_or(0),
         });
     }
 

@@ -1,8 +1,8 @@
 use axum::{
     http::StatusCode,
     middleware,
-    routing::{get, post},
-    Json, Router,
+    routing::get,
+    Router,
 };
 
 mod errors;
@@ -13,7 +13,6 @@ use crate::{
     kobo::{self, create_kobo_router},
     library::{create_download_router, models::LibraryState},
 };
-use serde::{Deserialize, Serialize};
 use std::{
     net::SocketAddr,
     sync::{Arc, Mutex},
@@ -30,10 +29,7 @@ pub async fn start_server() {
 
     let api_key = auth::api_key();
     let app = Router::<Arc<Mutex<LibraryState>>>::new()
-        // `GET /` goes to `root`
         .route("/", get(root))
-        // `POST /users` goes to `create_user`
-        .route("/users", post(create_user))
         .nest(&format!("/{api_key}/kobo/v1"), create_kobo_router())
         .nest(&format!("/{api_key}/download"), create_download_router())
         .merge(kobo::covers::create_cover_router(&format!("/{api_key}")))
@@ -76,7 +72,6 @@ fn spawn_library_refresh(library: Arc<Mutex<LibraryState>>, library_path: &str) 
     info!("library refresh every {}s", interval_seconds);
 }
 
-// basic handler that responds with a static string
 async fn root() -> &'static str {
     "Hello, World!"
 }
@@ -94,33 +89,4 @@ async fn not_found(uri: axum::http::Uri) -> (StatusCode, String) {
     }
 
     (StatusCode::NOT_FOUND, format!("no route for {path}"))
-}
-
-async fn create_user(
-    // this argument tells axum to parse the request body
-    // as JSON into a `CreateUser` type
-    Json(payload): Json<CreateUser>,
-) -> (StatusCode, Json<User>) {
-    // insert your application logic here
-    let user = User {
-        id: 1337,
-        username: payload.username,
-    };
-
-    // this will be converted into a JSON response
-    // with a status code of `201 Created`
-    (StatusCode::CREATED, Json(user))
-}
-
-// the input to our `create_user` handler
-#[derive(Deserialize)]
-struct CreateUser {
-    username: String,
-}
-
-// the output to our `create_user` handler
-#[derive(Serialize)]
-struct User {
-    id: u64,
-    username: String,
 }

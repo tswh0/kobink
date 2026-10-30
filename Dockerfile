@@ -2,8 +2,7 @@ FROM rust:1.88-slim-bookworm AS build
 
 # hadolint ignore=DL3008
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        build-essential ca-certificates libsqlite3-dev libssl-dev pkg-config \
+    && apt-get install -y --no-install-recommends build-essential ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /src
@@ -15,7 +14,7 @@ FROM debian:bookworm-slim
 
 # hadolint ignore=DL3008
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl libssl3 libsqlite3-0 \
+    && apt-get install -y --no-install-recommends ca-certificates curl \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /app /library \
     && : > /app/.env
