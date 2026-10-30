@@ -14,7 +14,16 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libssl-dev libsqlite3-dev pkg-config
 
       - name: cargo check
-        run: cargo check --locked --all-targets
+        run: |
+          set +e
+          cargo check --locked --all-targets 2>&1 | tee check.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            grep -E "^error" -A5 check.log | head -50 | tr -d '\r' | sed 's/%/%25/g' | while IFS= read -r line; do
+              echo "::error title=cargo::$line"
+            done
+          fi
+          exit $status
 
   smoke:
     if: github.ref == 'refs/heads/main'
@@ -26,7 +35,16 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libssl-dev libsqlite3-dev pkg-config
 
       - name: build
-        run: cargo build --release --locked
+        run: |
+          set +e
+          cargo build --release --locked 2>&1 | tee build.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            grep -E "^error" -A5 build.log | head -50 | tr -d '\r' | sed 's/%/%25/g' | while IFS= read -r line; do
+              echo "::error title=cargo::$line"
+            done
+          fi
+          exit $status
 
       - name: auth, scan, sync and download
         env:
