@@ -57,7 +57,11 @@ jobs:
           mkdir -p "$LIBRARY_PATH"
 
           python3 - <<'PY'
-          import os, zipfile
+          import base64, os, zipfile
+
+          PNG = base64.b64decode(
+              "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+          )
 
           def make_epub(path, title, author):
               os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -69,8 +73,12 @@ jobs:
               <dc:creator>{author}</dc:creator>
               <dc:language>en</dc:language>
               <meta property="dcterms:modified">2026-01-01T00:00:00Z</meta>
+              <meta name="cover" content="cover-img"/>
             </metadata>
-            <manifest><item id="c1" href="chapter1.xhtml" media-type="application/xhtml+xml"/></manifest>
+            <manifest>
+              <item id="c1" href="chapter1.xhtml" media-type="application/xhtml+xml"/>
+              <item id="cover-img" href="cover.png" media-type="image/png" properties="cover-image"/>
+            </manifest>
             <spine><itemref idref="c1"/></spine>
           </package>"""
               with zipfile.ZipFile(path, "w") as z:
@@ -82,6 +90,7 @@ jobs:
                   z.writestr("OEBPS/content.opf", opf)
                   z.writestr("OEBPS/chapter1.xhtml",
                              "<html xmlns='http://www.w3.org/1999/xhtml'><body><h1>x</h1></body></html>")
+                  z.writestr("OEBPS/cover.png", PNG)
 
           for v in (1, 2, 3):
               make_epub(f"/tmp/library/BLAME!/BLAME! Master Edition v0{v}.kepub.epub",
@@ -116,6 +125,16 @@ jobs:
           echo "format:        $(echo "$sync" | jq -r '.[0].NewEntitlement.BookMetadata.DownloadUrls[0].Format')"
           echo "download:      $(code "$url") $url"
 
+          book=$(echo "$sync" | jq -r '.[0].NewEntitlement.BookEntitlement.Id')
+          init=$(curl -s "http://127.0.0.1:3000/$key/kobo/v1/initialization")
+          echo "image_host:    $(echo "$init" | jq -r '.Resources.image_host')"
+          echo "image_url:     $(echo "$init" | jq -r '.Resources.image_url_template')"
+          echo "metadata:      $(code "http://127.0.0.1:3000/$key/kobo/v1/library/$book/metadata")"
+          cover_url="http://127.0.0.1:3000/$key/$book/400/600/false/image.jpg"
+          echo "cover:         $(code "$cover_url")"
+          echo "analytics:     $(curl -s -o /dev/null -w '%{http_code}' -X POST "http://127.0.0.1:3000/$key/kobo/v1/analytics/event")"
+          echo "download ct:   $(curl -sI "$url" | tr -d '\r' | awk 'tolower($1)=="content-type:"{print $2}')"
+
           sleep 5
           cat server.log
 
@@ -135,6 +154,12 @@ jobs:
           grep -qi '^x-kobo-synctoken: ' sync-headers.txt
           test "$(code "$url")" = "200"
           test "$(echo "$sync" | jq -r '.[0].NewEntitlement.BookMetadata.DownloadUrls[0].Format')" = "KEPUB"
+          test "$(echo "$init" | jq -r '.Resources.image_host')" = "http://127.0.0.1:3000"
+          echo "$init" | jq -e --arg k "$key" '.Resources.image_url_template | contains($k)' > /dev/null
+          test "$(code "http://127.0.0.1:3000/$key/kobo/v1/library/$book/metadata")" = "200"
+          test "$(code "$cover_url")" = "200"
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST "http://127.0.0.1:3000/$key/kobo/v1/analytics/event")" = "200"
+          test "$(curl -sI "$url" | tr -d '\r' | awk 'tolower($1)=="content-type:"{print $2}')" = "application/x-kobo-epub+zip"
 
           grep -q "api key:      $key" server.log
           grep -q "loaded 3 books" server.log

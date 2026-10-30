@@ -36,6 +36,7 @@ pub async fn start_server() {
         .route("/users", post(create_user))
         .nest(&format!("/{api_key}/kobo/v1"), create_kobo_router())
         .nest(&format!("/{api_key}/download"), create_download_router())
+        .merge(kobo::covers::create_cover_router(&format!("/{api_key}")))
         .fallback(not_found)
         .layer(middleware::from_fn(logging::log_request_response))
         .with_state(Arc::clone(&arcref));

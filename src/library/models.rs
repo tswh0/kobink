@@ -3,17 +3,10 @@ use std::path::PathBuf;
 use uuid::Uuid;
 use walkdir::WalkDir;
 
-use crate::{auth::api_key, kobo::library::models::DownloadUrl};
-
-const DEFAULT_PROTOCOL: &'static str = "https";
-const DEFAULT_HOST: &'static str = "tickets.eggworld.me";
-
-fn public_base() -> String {
-    std::env::var("PUBLIC_URL")
-        .unwrap_or_else(|_| format!("{}://{}", DEFAULT_PROTOCOL, DEFAULT_HOST))
-        .trim_end_matches('/')
-        .to_string()
-}
+use crate::{
+    auth::{api_key, public_base},
+    kobo::library::models::DownloadUrl,
+};
 
 #[derive(Debug, Clone)]
 pub struct Book {

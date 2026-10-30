@@ -1,6 +1,9 @@
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
-use crate::library::models::LibraryState;
+use crate::{
+    auth::{api_key, public_base},
+    library::models::LibraryState,
+};
 
 use super::{
     library::create_library_router,
@@ -8,11 +11,12 @@ use super::{
 };
 
 use axum::{
-    http::{HeaderMap, HeaderValue, StatusCode},
-    response::IntoResponse,
+    http::{header, HeaderMap, HeaderValue, StatusCode},
+    response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
+use serde_json::Value;
 
 const SYNCTOKEN_HEADER: &'static str = "x-kobo-synctoken";
 const INITIALIZATION_DATA: &'static str = include_str!("./data/initialization.json");
@@ -22,9 +26,10 @@ pub fn create_kobo_router() -> Router<Arc<Mutex<LibraryState>>> {
         .route("/auth/device", post(handle_auth_device))
         .route("/user/profile", get(stub))
         .route("/user/loyalty/benefits", get(stub))
+        .route("/user/recommendations", get(stub))
         .route("/deals", get(stub))
         .route("/products/*_", get(stub))
-        .route("/analytics/gettests", post(stub))
+        .route("/analytics/*_", get(stub).post(stub))
         .route("/affiliate", get(stub))
         .route("/initialization", get(handle_initialization))
         .route("/user/wishlist", get(stub))
@@ -45,37 +50,50 @@ async fn handle_auth_device(Json(_): Json<AuthDeviceRequest>) -> impl IntoRespon
     )
 }
 
-async fn handle_initialization(headers: HeaderMap) -> (StatusCode, &'static str) {
-    // proxy this request to the actual Kobo store, it's a bunch of constants
-    // let client = reqwest::Client::new();
-    // let mut new_headers = reqwest::header::HeaderMap::new();
-    // for (key, value) in headers.iter() {
-    //     let Ok(name) = reqwest::header::HeaderName::from_str(&*key.to_string()) else {
-    //         continue;
-    //     };
-    //     new_headers.insert(name, value.to_str().unwrap_or("").parse().unwrap());
-    // }
-    // new_headers.remove(HOST);
-    // new_headers.insert(
-    //     SYNCTOKEN_HEADER,
-    //     SyncTokenModel::default().to_string().parse().unwrap(),
-    // );
+async fn handle_initialization() -> Response {
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/json; charset=utf-8"),
+    );
+    headers.insert("x-kobo-apitoken", HeaderValue::from_static("e30="));
 
-    // new_headers.insert("x-kobo-apitoken", "e30=".parse().unwrap());
-    // println!("{:?}", new_headers);
+    (headers, initialization()).into_response()
+}
 
-    // // TODO: test if we need any other header other than auth
-    // // TODO: make this work - there are auth / bearer issues
-    // let res = client
-    //     .get("https://storeapi.kobo.com/v1/initialization")
-    //     .headers(new_headers)
-    //     .send()
-    //     .await
-    //     .expect("failed to send request to kobo");
-    // let body = res.text().await;
-    // println!("{:?}", body);
+fn initialization() -> String {
+    static INITIALIZED: OnceLock<String> = OnceLock::new();
 
-    (StatusCode::OK, INITIALIZATION_DATA)
+    INITIALIZED
+        .get_or_init(|| {
+            let mut root: Value =
+                serde_json::from_str(INITIALIZATION_DATA).unwrap_or(Value::Null);
+            let base = public_base();
+            let key = api_key();
+
+            if let Some(resources) = root.get_mut("Resources").and_then(Value::as_object_mut) {
+                resources.insert("image_host".to_string(), Value::String(base.clone()));
+                resources.insert(
+                    "image_url_template".to_string(),
+                    Value::String(format!(
+                        "{base}/{key}/{{ImageId}}/{{width}}/{{height}}/false/image.jpg"
+                    )),
+                );
+                resources.insert(
+                    "image_url_quality_template".to_string(),
+                    Value::String(format!(
+                        "{base}/{key}/{{ImageId}}/{{width}}/{{height}}/{{Quality}}/{{isGreyscale}}/image.jpg"
+                    )),
+                );
+                resources.insert(
+                    "library_sync".to_string(),
+                    Value::String(format!("{base}/{key}/kobo/v1/library/sync")),
+                );
+            }
+
+            root.to_string()
+        })
+        .clone()
 }
 
 async fn stub() -> (StatusCode, &'static str) {

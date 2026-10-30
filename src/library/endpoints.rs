@@ -35,8 +35,21 @@ async fn handle_file_download(
         return (StatusCode::NOT_FOUND, "book not found").into_response();
     };
 
-    ServeFile::new(&book.path)
+    let format = book.format();
+    let mut response = ServeFile::new(&book.path)
         .oneshot(request)
         .await
-        .into_response()
+        .into_response();
+
+    if response.status().is_success() {
+        let content_type = match format {
+            "KEPUB" => "application/x-kobo-epub+zip",
+            _ => "application/epub+zip",
+        };
+        response
+            .headers_mut()
+            .insert(header::CONTENT_TYPE, HeaderValue::from_static(content_type));
+    }
+
+    response
 }

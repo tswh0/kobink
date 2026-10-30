@@ -12,9 +12,15 @@ pub fn api_key() -> &'static str {
     API_KEY.get_or_init(resolve)
 }
 
+pub fn public_base() -> String {
+    std::env::var("PUBLIC_URL")
+        .unwrap_or_else(|_| "http://localhost:3000".to_string())
+        .trim_end_matches('/')
+        .to_string()
+}
+
 pub fn log_endpoint() {
-    let base = std::env::var("PUBLIC_URL").unwrap_or_else(|_| "http://localhost:3000".to_string());
-    let base = base.trim_end_matches('/');
+    let base = public_base();
     let key = api_key();
 
     info!("--------------------------------------------------------------");

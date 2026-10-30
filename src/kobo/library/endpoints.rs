@@ -1,8 +1,9 @@
 use std::sync::{Arc, Mutex};
 
 use axum::{
-    extract::State,
-    http::{HeaderMap, HeaderValue, StatusCode},
+    extract::{Path, State},
+    http::{header, HeaderMap, HeaderValue, StatusCode},
+    response::{IntoResponse, Response},
     routing::{delete, get, post, put},
     Json, Router,
 };
@@ -14,9 +15,32 @@ use super::models::{Entitlement, SyncEvent, SyncResponse};
 pub fn create_library_router() -> Router<Arc<Mutex<LibraryState>>> {
     Router::new()
         .route("/:book_id/state", put(stub))
+        .route("/:book_id/metadata", get(handle_metadata))
         .route("/tags/:book_or_tag_id_idk/items", post(stub))
         .route("/tags/:book_or_tag_id_idk/items/delete", post(stub))
         .route("/sync", get(handle_sync))
+}
+
+async fn handle_metadata(
+    State(library): State<Arc<Mutex<LibraryState>>>,
+    Path(book_id): Path<String>,
+) -> Response {
+    let metadata = {
+        let library = library.lock().unwrap();
+        library
+            .find_book_by_id(&book_id)
+            .map(|book| Entitlement::new(book).BookMetadata)
+    };
+
+    let Some(metadata) = metadata else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+
+    (
+        [(header::CONTENT_TYPE, "application/json; charset=utf-8")],
+        Json(vec![metadata]),
+    )
+        .into_response()
 }
 
 async fn stub() -> StatusCode {

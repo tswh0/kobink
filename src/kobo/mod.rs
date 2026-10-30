@@ -1,3 +1,4 @@
+pub mod covers;
 pub mod endpoints;
 pub mod library;
 pub mod models;
