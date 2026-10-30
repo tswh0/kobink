@@ -69,14 +69,14 @@ reverse proxy config before the first start).
 
 ### Image
 
-`ghcr.io/tswh0/kobink` is published by GitHub Actions for `linux/amd64` and `linux/arm64` on
-every push to `main` and every `v*` tag.
+`ghcr.io/tswh0/kobink` is published by GitHub Actions for `linux/amd64` and `linux/arm64`.
+Images are built on version tags only, so `main` stays free to move.
 
 | Tag | Points at |
 |---|---|
-| `latest`, `main` | tip of `main` |
-| `sha-<short>` | one commit |
-| `v1.2.3`, `v1.2` | git tags |
+| `v1.2.3`, `v1.2`, `v1` | that release |
+| `latest` | newest `v*` release |
+| `sha-<short>` | one commit within a release build |
 
 ```bash
 docker pull ghcr.io/tswh0/kobink:latest

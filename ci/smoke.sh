@@ -129,6 +129,8 @@ book=$(bval '.NewEntitlement.BookEntitlement.Id')
 url=$(bval '.NewEntitlement.BookMetadata.DownloadUrls[0].Url')
 
 expect "metadata" "$(code "$BASE/$KEY/kobo/v1/library/$book/metadata")" 200
+expect "state" "$(code "$BASE/$KEY/kobo/v1/library/$book/state")" 200
+expect "delete" "$(code -X DELETE "$BASE/$KEY/kobo/v1/library/$book")" 200
 expect "cover" "$(code "$BASE/$KEY/$book/400/600/false/image.jpg")" 200
 expect "analytics" "$(code -X POST "$BASE/$KEY/kobo/v1/analytics/event")" 200
 expect "download" "$(code "$url")" 200
