@@ -1,8 +1,9 @@
 services:
   kobink:
+    image: ghcr.io/tswh0/kobink:${KOBINK_TAG:-latest}
     build:
       context: .
-    image: kobink:local
+    pull_policy: missing
     container_name: kobink
     restart: unless-stopped
     ports:

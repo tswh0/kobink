@@ -20,8 +20,10 @@ Press "Sync" on the Kobo — all EPUB files in `LIBRARY_PATH` should now automat
 
 ```bash
 cp .env.example .env    # edit PUBLIC_URL and LIBRARY_DIR
-docker compose up -d --build
+docker compose up -d    # pulls ghcr.io/tswh0/kobink:latest
 ```
+
+To compile the image yourself instead: `docker compose build`.
 
 | Variable | Meaning |
 |---|---|
@@ -31,6 +33,7 @@ docker compose up -d --build
 | `API_KEY` | Optional. Pins the API key; leave empty to have one generated on first start. |
 | `API_KEY_FILE` | Where the generated key is stored, default `/app/data/api-key` (mounted at `./data`). |
 | `KOBINK_PORT` | Host port, default `3000`. |
+| `KOBINK_TAG` | Image tag to run, default `latest`. |
 | `RUST_LOG` | `info` by default, `debug` for troubleshooting. |
 
 ### Authentication
@@ -64,6 +67,21 @@ and a 404 that says so.
 Set `API_KEY` in `.env` instead if you would rather manage the key yourself (e.g. supply a
 reverse proxy config before the first start).
 
+### Image
+
+`ghcr.io/tswh0/kobink` is published by GitHub Actions for `linux/amd64` and `linux/arm64` on
+every push to `main` and every `v*` tag.
+
+| Tag | Points at |
+|---|---|
+| `latest`, `main` | tip of `main` |
+| `sha-<short>` | one commit |
+| `v1.2.3`, `v1.2` | git tags |
+
+```bash
+docker pull ghcr.io/tswh0/kobink:latest
+```
+
 Notes:
 
 - The image builds from this tree. Two fixes are applied on top of upstream `a82976b`:
@@ -72,4 +90,5 @@ Notes:
   was never committed upstream (that broke the build).
 - The library is rescanned every `LIBRARY_REFRESH_SECONDS` (default 10 minutes); add books and
   wait for the next pass, no restart needed.
-- `.github/workflows/build.yml` runs `cargo check` on every push.
+- `.github/workflows/build.yml` runs `cargo check` plus the kobo protocol smoke test on every
+  push; `.github/workflows/image.yml` publishes the container image.
