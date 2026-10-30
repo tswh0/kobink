@@ -21,7 +21,7 @@ code() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
 
 on_error() {
     echo "::error title=smoke::line $1: $2"
-    grep -iE "panic" "$LOG" 2>/dev/null | head -3 | while IFS= read -r line; do
+    grep -A3 -iE "panicked at" "$LOG" 2>/dev/null | head -8 | while IFS= read -r line; do
         echo "::error title=server::$line"
     done
 }
