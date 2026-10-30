@@ -25,16 +25,20 @@ async fn stub() -> StatusCode {
 
 async fn handle_sync(
     State(library): State<Arc<Mutex<LibraryState>>>,
-    headers: HeaderMap,
-) -> Result<(StatusCode, Json<SyncResponse>), AppError> {
-    // let sync_token = SyncTokenModel::from_headers(&headers)?;
-
-    let res = library
+    _headers: HeaderMap,
+) -> Result<(StatusCode, HeaderMap, Json<SyncResponse>), AppError> {
+    let events: Vec<SyncEvent> = library
         .lock()
         .unwrap()
         .books
         .iter()
         .map(SyncEvent::new)
         .collect();
-    Ok((StatusCode::OK, Json(res)))
+
+    let mut headers = HeaderMap::new();
+    if let Ok(token) = HeaderValue::try_from(SyncTokenModel::now().to_header_value()) {
+        headers.insert("x-kobo-synctoken", token);
+    }
+
+    Ok((StatusCode::OK, headers, Json(events)))
 }

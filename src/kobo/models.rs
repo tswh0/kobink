@@ -1,4 +1,5 @@
 #![allow(non_snake_case)]
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -33,6 +34,27 @@ pub struct _SyncTokenData {
 pub struct SyncTokenModel {
     pub version: String,
     pub data: _SyncTokenData,
+}
+
+impl SyncTokenModel {
+    pub fn now() -> Self {
+        let now = Utc::now();
+        Self {
+            version: "1".to_string(),
+            data: _SyncTokenData {
+                raw_kobo_store_token: String::new(),
+                books_last_modified: now,
+                books_last_created: now,
+                archive_last_modified: now,
+                reading_state_last_modified: now,
+                tags_last_modified: now,
+            },
+        }
+    }
+
+    pub fn to_header_value(&self) -> String {
+        STANDARD.encode(serde_json::to_string(self).unwrap_or_default())
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]

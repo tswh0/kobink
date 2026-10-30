@@ -61,6 +61,7 @@ pub struct BookMetadata {
     pub PublicationDate: String,
     pub Publisher: Publisher,
     pub RevisionId: Uuid,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub Series: Option<Series>,
     pub Title: String,
     pub WorkId: Uuid,

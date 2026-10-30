@@ -4,8 +4,12 @@ use super::models::{
     ActivePeriod, BookEntitlement, BookMetadata, ContributorRole, CurrentDisplayPrice,
     CurrentLoveDisplayPrice, Entitlement, PhoneticPronunciations, Publisher, SyncEvent,
 };
-use chrono::SecondsFormat;
+use chrono::{DateTime, Utc};
 use uuid::Uuid;
+
+fn kobo_timestamp(time: DateTime<Utc>) -> String {
+    time.format("%Y-%m-%dT%H:%M:%SZ").to_string()
+}
 
 impl SyncEvent {
     pub fn new(book: &Book) -> Self {
@@ -33,7 +37,7 @@ impl Entitlement {
     }
 
     pub fn default(uuid: Uuid) -> Entitlement {
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = kobo_timestamp(Utc::now());
         Self {
             BookEntitlement: BookEntitlement {
                 Accessibility: "Full".to_string(),

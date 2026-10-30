@@ -28,7 +28,7 @@ jobs:
       - name: build
         run: cargo build --release --locked
 
-      - name: auth and refresh
+      - name: auth, scan, sync and download
         env:
           API_KEY: smoketestkey123
           LIBRARY_PATH: /tmp/library
@@ -37,6 +37,39 @@ jobs:
           RUST_LOG: info
         run: |
           mkdir -p "$LIBRARY_PATH"
+
+          python3 - <<'PY'
+          import os, zipfile
+
+          def make_epub(path, title, author):
+              os.makedirs(os.path.dirname(path), exist_ok=True)
+              opf = f"""<?xml version="1.0" encoding="utf-8"?>
+          <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id">
+            <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+              <dc:identifier id="id">urn:uuid:12345678-1234-1234-1234-123456789abc</dc:identifier>
+              <dc:title>{title}</dc:title>
+              <dc:creator>{author}</dc:creator>
+              <dc:language>en</dc:language>
+              <meta property="dcterms:modified">2026-01-01T00:00:00Z</meta>
+            </metadata>
+            <manifest><item id="c1" href="chapter1.xhtml" media-type="application/xhtml+xml"/></manifest>
+            <spine><itemref idref="c1"/></spine>
+          </package>"""
+              with zipfile.ZipFile(path, "w") as z:
+                  z.writestr("mimetype", "application/epub+zip", compress_type=zipfile.ZIP_STORED)
+                  z.writestr("META-INF/container.xml", """<?xml version="1.0"?>
+          <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+            <rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles>
+          </container>""")
+                  z.writestr("OEBPS/content.opf", opf)
+                  z.writestr("OEBPS/chapter1.xhtml",
+                             "<html xmlns='http://www.w3.org/1999/xhtml'><body><h1>x</h1></body></html>")
+
+          for v in (1, 2, 3):
+              make_epub(f"/tmp/library/BLAME!/BLAME! Master Edition v0{v}.kepub.epub",
+                        f"BLAME! Master Edition v0{v}", "Tsutomu Nihei")
+          PY
+
           ./target/release/kobink > server.log 2>&1 &
           for _ in $(seq 1 30); do
             curl -fsS http://127.0.0.1:3000/ > /dev/null && break
@@ -44,12 +77,26 @@ jobs:
           done
 
           code() { curl -s -o /dev/null -w '%{http_code}' "$1"; }
+          key=smoketestkey123
+
           echo "root          $(code http://127.0.0.1:3000/)"
           echo "no key        $(code http://127.0.0.1:3000/kobo/v1/user/profile)"
           echo "wrong key     $(code http://127.0.0.1:3000/nope/kobo/v1/user/profile)"
-          echo "right key     $(code http://127.0.0.1:3000/smoketestkey123/kobo/v1/user/profile)"
-          echo "v1/v1         $(code http://127.0.0.1:3000/smoketestkey123/kobo/v1/v1/initialization)"
+          echo "right key     $(code http://127.0.0.1:3000/$key/kobo/v1/user/profile)"
+          echo "v1/v1         $(code http://127.0.0.1:3000/$key/kobo/v1/v1/initialization)"
           echo "download, no key $(code http://127.0.0.1:3000/download/abc/EPUB/x.epub)"
+
+          sync=$(curl -s -D sync-headers.txt "http://127.0.0.1:3000/$key/kobo/v1/library/sync")
+          echo "$sync" | jq -c '.[] | {id: .NewEntitlement.BookEntitlement.Id, title: .NewEntitlement.BookMetadata.Title}'
+          echo "books in sync: $(echo "$sync" | jq 'length')"
+          echo "distinct ids:  $(echo "$sync" | jq -r '.[].NewEntitlement.BookEntitlement.Id' | sort -u | wc -l)"
+          echo "created:       $(echo "$sync" | jq -r '.[0].NewEntitlement.BookEntitlement.Created')"
+          echo "series key:    $(echo "$sync" | jq '.[0].NewEntitlement.BookMetadata | has("Series")')"
+          echo "synctoken:     $(grep -ci '^x-kobo-synctoken' sync-headers.txt)"
+
+          url=$(echo "$sync" | jq -r '.[0].NewEntitlement.BookMetadata.DownloadUrls[0].Url')
+          echo "format:        $(echo "$sync" | jq -r '.[0].NewEntitlement.BookMetadata.DownloadUrls[0].Format')"
+          echo "download:      $(code "$url") $url"
 
           sleep 5
           cat server.log
@@ -57,9 +104,20 @@ jobs:
           test "$(code http://127.0.0.1:3000/)" = "200"
           test "$(code http://127.0.0.1:3000/kobo/v1/user/profile)" = "404"
           test "$(code http://127.0.0.1:3000/nope/kobo/v1/user/profile)" = "404"
-          test "$(code http://127.0.0.1:3000/smoketestkey123/kobo/v1/user/profile)" = "200"
+          test "$(code http://127.0.0.1:3000/$key/kobo/v1/user/profile)" = "200"
           test "$(code http://127.0.0.1:3000/download/abc/EPUB/x.epub)" = "404"
-          test "$(code http://127.0.0.1:3000/smoketestkey123/kobo/v1/v1/initialization)" = "404"
-          curl -s http://127.0.0.1:3000/smoketestkey123/kobo/v1/v1/initialization | grep -q "must end at /kobo"
-          grep -q "api key:      smoketestkey123" server.log
+          test "$(code http://127.0.0.1:3000/$key/kobo/v1/v1/initialization)" = "404"
+          curl -s "http://127.0.0.1:3000/$key/kobo/v1/v1/initialization" | grep -q "must end at /kobo"
+
+          test "$(echo "$sync" | jq 'length')" = "3"
+          test "$(echo "$sync" | jq -r '.[].NewEntitlement.BookEntitlement.Id' | sort -u | wc -l)" = "3"
+          echo "$sync" | jq -e '.[0].NewEntitlement.BookEntitlement.Created
+            | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")' > /dev/null
+          test "$(echo "$sync" | jq '.[0].NewEntitlement.BookMetadata | has("Series")')" = "false"
+          grep -qi '^x-kobo-synctoken: ' sync-headers.txt
+          test "$(code "$url")" = "200"
+          test "$(echo "$sync" | jq -r '.[0].NewEntitlement.BookMetadata.DownloadUrls[0].Format')" = "KEPUB"
+
+          grep -q "api key:      $key" server.log
+          grep -q "loaded 3 books" server.log
           grep -q "library refreshed" server.log

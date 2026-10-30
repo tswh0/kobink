@@ -26,16 +26,25 @@ pub struct Book {
 }
 
 impl Book {
+    pub fn format(&self) -> &'static str {
+        if self.path.to_string_lossy().ends_with(".kepub.epub") {
+            "KEPUB"
+        } else {
+            "EPUB"
+        }
+    }
+
     pub fn download_url(&self) -> DownloadUrl {
+        let format = self.format();
         DownloadUrl {
-            Format: "EPUB".to_string(),
+            Format: format.to_string(),
             Size: self.size,
             Url: format!(
                 "{}/{}/download/{book_id}/{book_format}/{filename}",
                 public_base(),
                 api_key(),
                 book_id = self.id,
-                book_format = "EPUB",
+                book_format = format,
                 filename = self
                     .path
                     .file_name()
@@ -68,6 +77,19 @@ impl LibraryState {
     }
 }
 
+pub fn book_id(seed: &str) -> Uuid {
+    const OFFSET_BASIS: u128 = 0x6c62272e07bb014262b821756295c58d;
+    const PRIME: u128 = 0x0000000001000000000000000000013b;
+
+    let mut hash = OFFSET_BASIS;
+    for byte in seed.as_bytes() {
+        hash ^= *byte as u128;
+        hash = hash.wrapping_mul(PRIME);
+    }
+
+    Uuid::from_u128(hash)
+}
+
 pub fn scan(library_path: &str) -> Vec<Book> {
     let mut books = Vec::new();
 
@@ -89,14 +111,11 @@ pub fn scan(library_path: &str) -> Vec<Book> {
             .unwrap_or("Unknown author".to_string());
         let description = epub.mdata("description").unwrap_or("".to_string());
 
-        let mut seed = [0u8; 16];
-        let seed_key = format!("{}{}", title, author);
-        let seed_source = seed_key.as_bytes();
-        let copy_len = std::cmp::min(seed.len(), seed_source.len());
-        seed[..copy_len].copy_from_slice(&seed_source[..copy_len]);
+        let filename = entry.file_name().to_string_lossy().to_string();
+        let id = book_id(&format!("{title}|{author}|{filename}"));
 
         books.push(Book {
-            id: Uuid::from_bytes(seed),
+            id,
             title,
             authors: vec![author],
             description,
