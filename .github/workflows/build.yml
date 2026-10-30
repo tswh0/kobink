@@ -54,6 +54,7 @@ jobs:
           LIBRARY_REFRESH_SECONDS: "2"
           RUST_LOG: info
         run: |
+          trap 'echo "::error title=smoke::line $LINENO: $BASH_COMMAND"' ERR
           mkdir -p "$LIBRARY_PATH"
 
           python3 - <<'PY'
