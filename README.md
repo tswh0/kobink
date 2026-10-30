@@ -1,5 +1,7 @@
 # Kobink
 
+> Fork of [potatoeggy/kobink](https://github.com/potatoeggy/kobink) with Docker packaging and a fix for the build.
+
 Automatically sync local books to your Kobo by pretending to be the Kobo Store
 
 ### Setup
