@@ -15,3 +15,48 @@ jobs:
 
       - name: cargo check
         run: cargo check --locked --all-targets
+
+  smoke:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: system deps
+        run: sudo apt-get update && sudo apt-get install -y libssl-dev libsqlite3-dev pkg-config
+
+      - name: build
+        run: cargo build --release --locked
+
+      - name: auth and refresh
+        env:
+          API_KEY: smoketestkey123
+          LIBRARY_PATH: /tmp/library
+          PUBLIC_URL: http://127.0.0.1:3000
+          LIBRARY_REFRESH_SECONDS: "2"
+          RUST_LOG: info
+        run: |
+          mkdir -p "$LIBRARY_PATH"
+          ./target/release/kobink > server.log 2>&1 &
+          for _ in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:3000/ > /dev/null && break
+            sleep 1
+          done
+
+          code() { curl -s -o /dev/null -w '%{http_code}' "$1"; }
+          echo "root          $(code http://127.0.0.1:3000/)"
+          echo "no key        $(code http://127.0.0.1:3000/kobo/v1/user/profile)"
+          echo "wrong key     $(code http://127.0.0.1:3000/nope/kobo/v1/user/profile)"
+          echo "right key     $(code http://127.0.0.1:3000/smoketestkey123/kobo/v1/user/profile)"
+          echo "download, no key $(code http://127.0.0.1:3000/download/abc/EPUB/x.epub)"
+
+          sleep 5
+          cat server.log
+
+          test "$(code http://127.0.0.1:3000/)" = "200"
+          test "$(code http://127.0.0.1:3000/kobo/v1/user/profile)" = "404"
+          test "$(code http://127.0.0.1:3000/nope/kobo/v1/user/profile)" = "404"
+          test "$(code http://127.0.0.1:3000/smoketestkey123/kobo/v1/user/profile)" = "200"
+          test "$(code http://127.0.0.1:3000/download/abc/EPUB/x.epub)" = "404"
+          grep -q "api key:      smoketestkey123" server.log
+          grep -q "library refreshed" server.log
