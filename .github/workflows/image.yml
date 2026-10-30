@@ -35,20 +35,29 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-
       - id: build
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          platforms: ${{ matrix.platform }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=${{ matrix.platform }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.platform }}
-          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
+        name: build
+        run: |
+          set +e
+          docker buildx build \
+            --platform "${{ matrix.platform }}" \
+            --label "org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}" \
+            --label "org.opencontainers.image.revision=${{ github.sha }}" \
+            --cache-from "type=gha,scope=${{ matrix.platform }}" \
+            --cache-to "type=gha,mode=max,scope=${{ matrix.platform }}" \
+            --metadata-file metadata.json \
+            --output "type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true" \
+            . 2>&1 | tee build.log
+          status=${PIPESTATUS[0]}
+
+          if [ "$status" -ne 0 ]; then
+            grep -iE "error|not found|failed to|cannot" build.log | tail -25 | tr -d '\r' | sed 's/%/%25/g' | while IFS= read -r line; do
+              echo "::error title=docker::$line"
+            done
+            exit $status
+          fi
+
+          echo "digest=$(jq -r '."containerimage.digest"' metadata.json)" >> "$GITHUB_OUTPUT"
 
       - run: |
           mkdir -p /tmp/digests
