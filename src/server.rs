@@ -9,6 +9,7 @@ mod errors;
 pub use errors::AppError;
 mod logging;
 use crate::{
+    auth,
     kobo::{self, create_kobo_router},
     library::{create_download_router, models::LibraryState},
 };
@@ -24,13 +25,17 @@ pub async fn start_server() {
         std::env::var("LIBRARY_PATH").unwrap_or_else(|_| "/media/kobink_test".to_string());
     let initial_state = LibraryState::new(&library_path);
     let arcref = Arc::new(Mutex::new(initial_state));
+
+    spawn_library_refresh(Arc::clone(&arcref), &library_path);
+
+    let api_key = auth::api_key();
     let app = Router::<Arc<Mutex<LibraryState>>>::new()
         // `GET /` goes to `root`
         .route("/", get(root))
         // `POST /users` goes to `create_user`
         .route("/users", post(create_user))
-        .nest("/kobo/:key/v1", create_kobo_router())
-        .nest("/download", create_download_router())
+        .nest(&format!("/{api_key}/kobo/v1"), create_kobo_router())
+        .nest(&format!("/{api_key}/download"), create_download_router())
         .layer(middleware::from_fn(logging::log_request_response))
         .with_state(Arc::clone(&arcref));
 
@@ -40,6 +45,33 @@ pub async fn start_server() {
         .unwrap();
     info!("listening on {}", addr);
     axum::serve(listener, app).await.unwrap();
+}
+
+fn spawn_library_refresh(library: Arc<Mutex<LibraryState>>, library_path: &str) {
+    let interval_seconds = std::env::var("LIBRARY_REFRESH_SECONDS")
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .unwrap_or(600);
+
+    if interval_seconds == 0 {
+        info!("library refresh disabled");
+        return;
+    }
+
+    let library_path = library_path.to_string();
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(interval_seconds));
+        ticker.tick().await;
+        loop {
+            ticker.tick().await;
+            let books = crate::library::models::scan(&library_path);
+            let count = books.len();
+            library.lock().unwrap().books = books;
+            info!("library refreshed: {} books", count);
+        }
+    });
+
+    info!("library refresh every {}s", interval_seconds);
 }
 
 // basic handler that responds with a static string

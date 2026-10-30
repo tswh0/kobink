@@ -28,8 +28,11 @@ async fn handle_file_download(
 ) -> Response {
     let book = {
         let library = library.lock().unwrap();
-        let book = library.find_book_by_id(&book_id).unwrap();
-        book.clone()
+        library.find_book_by_id(&book_id).cloned()
+    };
+
+    let Some(book) = book else {
+        return (StatusCode::NOT_FOUND, "book not found").into_response();
     };
 
     ServeFile::new(&book.path)

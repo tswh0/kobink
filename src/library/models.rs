@@ -1,18 +1,18 @@
 use epub::doc::EpubDoc;
-use std::{
-    fs,
-    path::{Path, PathBuf},
-};
+use std::path::PathBuf;
 use uuid::Uuid;
 use walkdir::WalkDir;
 
-use crate::kobo::library::models::DownloadUrl;
+use crate::{auth::api_key, kobo::library::models::DownloadUrl};
 
 const DEFAULT_PROTOCOL: &'static str = "https";
 const DEFAULT_HOST: &'static str = "tickets.eggworld.me";
 
 fn public_base() -> String {
-    std::env::var("PUBLIC_URL").unwrap_or_else(|_| format!("{}://{}", DEFAULT_PROTOCOL, DEFAULT_HOST))
+    std::env::var("PUBLIC_URL")
+        .unwrap_or_else(|_| format!("{}://{}", DEFAULT_PROTOCOL, DEFAULT_HOST))
+        .trim_end_matches('/')
+        .to_string()
 }
 
 #[derive(Debug, Clone)]
@@ -31,8 +31,9 @@ impl Book {
             Format: "EPUB".to_string(),
             Size: self.size,
             Url: format!(
-                "{}/download/{book_id}/{book_format}/{filename}",
+                "{}/{}/download/{book_id}/{book_format}/{filename}",
                 public_base(),
+                api_key(),
                 book_id = self.id,
                 book_format = "EPUB",
                 filename = self
@@ -56,55 +57,54 @@ pub struct LibraryState {
 
 impl LibraryState {
     pub fn new(library_path: &str) -> Self {
-        let mut library = Self {
+        Self {
             path: library_path.to_string(),
-            books: vec![],
-        };
-
-        library.load_books();
-        library
+            books: scan(library_path),
+        }
     }
 
     pub fn find_book_by_id(&self, id: &str) -> Option<&Book> {
         self.books.iter().find(|book| book.id.to_string() == id)
     }
+}
 
-    // TODO: watch the library path for changes
-    pub fn load_books<'a>(&mut self) {
-        // recursively walk the library path and load all the books
-        for path in WalkDir::new(&self.path)
-            .into_iter()
-            .filter_map(|e| e.ok())
-            .filter(|e| e.path().extension().is_some_and(|ext| ext == "epub"))
-        {
-            let Ok(epub) = EpubDoc::new(path.path()) else {
-                tracing::info!("failed to load epub at {:?}", path.path());
-                continue;
-            };
+pub fn scan(library_path: &str) -> Vec<Book> {
+    let mut books = Vec::new();
 
-            let title = epub.mdata("title").unwrap_or("Untitled".to_string());
+    for entry in WalkDir::new(library_path)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().extension().is_some_and(|ext| ext == "epub"))
+    {
+        let Ok(epub) = EpubDoc::new(entry.path()) else {
+            tracing::info!("failed to load epub at {:?}", entry.path());
+            continue;
+        };
 
-            // we can use metadata.get("creator") to get multiple authors
-            let author = epub
-                .mdata("creator")
-                .unwrap_or("Unknown author".to_string());
-            let description = epub.mdata("description").unwrap_or("".to_string());
+        let title = epub.mdata("title").unwrap_or("Untitled".to_string());
 
-            let mut seed = [0u8; 16];
-            let seed_key = format!("{}{}", title, author);
-            let seed_source = seed_key.as_bytes();
-            let copy_len = std::cmp::min(seed.len(), seed_source.len());
-            seed[..copy_len].copy_from_slice(&seed_source[..copy_len]);
+        // we can use metadata.get("creator") to get multiple authors
+        let author = epub
+            .mdata("creator")
+            .unwrap_or("Unknown author".to_string());
+        let description = epub.mdata("description").unwrap_or("".to_string());
 
-            self.books.push(Book {
-                id: Uuid::from_bytes(seed),
-                title,
-                authors: vec![author],
-                description,
-                path: path.path().to_path_buf(),
-                size: path.metadata().unwrap().len(),
-            });
-        }
-        println!("loaded {:?} books", self.books);
+        let mut seed = [0u8; 16];
+        let seed_key = format!("{}{}", title, author);
+        let seed_source = seed_key.as_bytes();
+        let copy_len = std::cmp::min(seed.len(), seed_source.len());
+        seed[..copy_len].copy_from_slice(&seed_source[..copy_len]);
+
+        books.push(Book {
+            id: Uuid::from_bytes(seed),
+            title,
+            authors: vec![author],
+            description,
+            path: entry.path().to_path_buf(),
+            size: entry.metadata().unwrap().len(),
+        });
     }
+
+    tracing::info!("loaded {} books from {}", books.len(), library_path);
+    books
 }

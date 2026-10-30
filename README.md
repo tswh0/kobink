@@ -26,18 +26,40 @@ docker compose up -d --build
 | Variable | Meaning |
 |---|---|
 | `PUBLIC_URL` | Address the **Kobo** uses to reach this server, e.g. `http://192.168.1.10:3000`. Baked into every download URL, so it must be reachable from the device. |
-| `LIBRARY_DIR` | Host folder with your EPUBs, mounted read-only at `/library` (scanned recursively at startup). |
+| `LIBRARY_DIR` | Host folder with your EPUBs, mounted read-only at `/library`. |
+| `LIBRARY_REFRESH_SECONDS` | How often the library is rescanned, default `600` (10 min); `0` disables it. |
+| `API_KEY` | Optional. Pins the API key; leave empty to have one generated on first start. |
+| `API_KEY_FILE` | Where the generated key is stored, default `/app/data/api-key` (mounted at `./data`). |
 | `KOBINK_PORT` | Host port, default `3000`. |
 | `RUST_LOG` | `info` by default, `debug` for troubleshooting. |
 
-Point the device at the container:
+### Authentication
+
+Every request below the API key is rejected (404), so the endpoint can be exposed through a
+reverse proxy without granting access to the library.
+
+On first start a key is generated, written to `API_KEY_FILE` and printed in the logs:
+
+```bash
+docker compose logs kobink | grep -A2 "api key"
+```
+
+```
+--------------------------------------------------------------
+ api key:      9f3c1d0c8b2e4a76b1d5f0a2c7e93b48
+ api_endpoint: http://192.168.1.10:3000/9f3c1d0c8b2e4a76b1d5f0a2c7e93b48/kobo/v1
+--------------------------------------------------------------
+```
+
+Point the device at the container, with the key in the path:
 
 ```ini
 [OneStoreServices]
-api_endpoint=http://192.168.1.10:3000/kobo/kobink/v1
+api_endpoint=http://192.168.1.10:3000/9f3c1d0c8b2e4a76b1d5f0a2c7e93b48/kobo/v1
 ```
 
-The `kobink` segment is the `:key` path parameter and accepts any value.
+Set `API_KEY` in `.env` instead if you would rather manage the key yourself (e.g. supply a
+reverse proxy config before the first start).
 
 Notes:
 
@@ -45,5 +67,6 @@ Notes:
   `src/library/models.rs` makes the download host configurable via `PUBLIC_URL` instead of the
   hardcoded `tickets.eggworld.me`; `src/main.rs` no longer declares a `mod models;` whose file
   was never committed upstream (that broke the build).
-- The library is scanned once at startup; restart the container after adding books.
-- Upstream calls `dotenv().unwrap()`, so the image ships an empty `/app/.env`.
+- The library is rescanned every `LIBRARY_REFRESH_SECONDS` (default 10 minutes); add books and
+  wait for the next pass, no restart needed.
+- `.github/workflows/build.yml` runs `cargo check` on every push.
