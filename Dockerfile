@@ -1,4 +1,4 @@
-FROM rust:1.83-slim-bookworm AS build
+FROM rust:1.88-slim-bookworm AS build
 
 # hadolint ignore=DL3008
 RUN apt-get update \

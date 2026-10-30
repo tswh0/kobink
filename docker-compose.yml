@@ -13,6 +13,7 @@ services:
       PUBLIC_URL: ${PUBLIC_URL:?set PUBLIC_URL in .env, e.g. http://192.168.1.10:3000}
       API_KEY: ${API_KEY:-}
       API_KEY_FILE: /app/data/api-key
+      COVER_CACHE_DIR: /app/data/covers
       LIBRARY_REFRESH_SECONDS: ${LIBRARY_REFRESH_SECONDS:-600}
       RUST_LOG: ${RUST_LOG:-info}
     volumes:

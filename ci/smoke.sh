@@ -19,6 +19,28 @@ expect() {
 
 code() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
 
+jpeg_dims() {
+    python3 - "$1" <<'PY'
+import struct, sys, urllib.request
+
+data = urllib.request.urlopen(sys.argv[1]).read()
+i = 2
+while i < len(data) - 9:
+    if data[i] != 0xFF:
+        i += 1
+        continue
+    marker = data[i + 1]
+    if marker in (0xC0, 0xC1, 0xC2, 0xC3):
+        height, width = struct.unpack(">HH", data[i + 5:i + 9])
+        print(f"{width}x{height}")
+        break
+    if marker in (0xD8, 0xD9) or 0xD0 <= marker <= 0xD7:
+        i += 2
+        continue
+    i += 2 + struct.unpack(">H", data[i + 2:i + 4])[0]
+PY
+}
+
 on_error() {
     echo "::error title=smoke::line $1: $2"
     grep -A3 -iE "panicked at" "$LOG" 2>/dev/null | head -8 | while IFS= read -r line; do
@@ -31,11 +53,29 @@ trap 'on_error "$LINENO" "$BASH_COMMAND"' ERR
 mkdir -p "$LIB/BLAME!"
 
 python3 - "$LIB" <<'PY'
-import base64, os, sys, zipfile
+import os, struct, sys, zipfile, zlib
 
-PNG = base64.b64decode(
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
-)
+
+def solid_png(width, height, rgb):
+    raw = (b"\x00" + bytes(rgb) * width) * height
+
+    def chunk(tag, data):
+        body = tag + data
+        return (
+            struct.pack(">I", len(data))
+            + body
+            + struct.pack(">I", zlib.crc32(body) & 0xFFFFFFFF)
+        )
+
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+        + chunk(b"IDAT", zlib.compress(raw, 9))
+        + chunk(b"IEND", b"")
+    )
+
+
+PNG = solid_png(800, 1200, (40, 40, 40))
 root = sys.argv[1]
 
 
@@ -131,7 +171,20 @@ url=$(bval '.NewEntitlement.BookMetadata.DownloadUrls[0].Url')
 expect "metadata" "$(code "$BASE/$KEY/kobo/v1/library/$book/metadata")" 200
 expect "state" "$(code "$BASE/$KEY/kobo/v1/library/$book/state")" 200
 expect "delete" "$(code -X DELETE "$BASE/$KEY/kobo/v1/library/$book")" 200
-expect "cover" "$(code "$BASE/$KEY/$book/400/600/false/image.jpg")" 200
+expect "cover" "$(code "$BASE/$KEY/$book/149/223/false/image.jpg")" 200
+expect "cover content type" \
+    "$(curl -sI "$BASE/$KEY/$book/149/223/false/image.jpg" | tr -d '\r' | awk 'tolower($1)=="content-type:"{print $2}')" \
+    "image/jpeg"
+thumb=$(jpeg_dims "$BASE/$KEY/$book/149/223/70/False/image.jpg")
+case "$thumb" in
+    148x223 | 149x223) printf '%-22s %s\n' "cover thumb" "$thumb" ;;
+    *)
+        echo "::error title=smoke::cover thumb: unexpected size '$thumb'"
+        exit 1
+        ;;
+esac
+expect "cover large" "$(jpeg_dims "$BASE/$KEY/$book/1264/1680/80/False/image.jpg")" "800x1200"
+expect "cover cached" "$(ls "$COVER_CACHE_DIR" | wc -l | tr -d ' ')" 2
 expect "analytics" "$(code -X POST "$BASE/$KEY/kobo/v1/analytics/event")" 200
 expect "download" "$(code "$url")" 200
 expect "download content type" \

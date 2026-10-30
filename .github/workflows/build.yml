@@ -52,5 +52,6 @@ jobs:
           LIBRARY_PATH: /tmp/library
           PUBLIC_URL: http://127.0.0.1:3000
           LIBRARY_REFRESH_SECONDS: "2"
+          COVER_CACHE_DIR: /tmp/covers
           RUST_LOG: info
         run: bash ci/smoke.sh

@@ -32,6 +32,7 @@ To compile the image yourself instead: `docker compose build`.
 | `LIBRARY_REFRESH_SECONDS` | How often the library is rescanned, default `600` (10 min); `0` disables it. |
 | `API_KEY` | Optional. Pins the API key; leave empty to have one generated on first start. |
 | `API_KEY_FILE` | Where the generated key is stored, default `/app/data/api-key` (mounted at `./data`). |
+| `COVER_CACHE_DIR` | Where rendered covers are cached, default `/app/data/covers`. |
 | `KOBINK_PORT` | Host port, default `3000`. |
 | `KOBINK_TAG` | Image tag to run, default `latest`. |
 | `RUST_LOG` | `info` by default, `debug` for troubleshooting. |
