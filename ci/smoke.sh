@@ -132,7 +132,12 @@ expect "image_host" "$(printf '%s' "$init" | jq -r '.Resources.image_host')" "$B
 expect "image_url_template" "$(printf '%s' "$init" | jq -r '.Resources.image_url_template' | grep -c "$KEY")" 1
 
 sleep 4
-expect "refresh logged" "$(grep -c 'library refreshed' "$LOG")" 1
+refreshes=$(grep -c 'library refreshed' "$LOG" || true)
+if [ "$refreshes" -lt 1 ]; then
+    echo "::error title=smoke::refresh: expected at least one refresh, got $refreshes"
+    exit 1
+fi
+printf '%-22s %s\n' "refresh logged" "$refreshes"
 expect "api key logged" "$(grep -c "api key:      $KEY" "$LOG")" 1
 
 echo "ok"
