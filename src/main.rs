@@ -1,6 +1,5 @@
 mod kobo;
 mod library;
-mod models;
 mod server;
 
 use dotenvy::dotenv;

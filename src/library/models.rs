@@ -11,6 +11,10 @@ use crate::kobo::library::models::DownloadUrl;
 const DEFAULT_PROTOCOL: &'static str = "https";
 const DEFAULT_HOST: &'static str = "tickets.eggworld.me";
 
+fn public_base() -> String {
+    std::env::var("PUBLIC_URL").unwrap_or_else(|_| format!("{}://{}", DEFAULT_PROTOCOL, DEFAULT_HOST))
+}
+
 #[derive(Debug, Clone)]
 pub struct Book {
     pub id: Uuid,
@@ -27,9 +31,8 @@ impl Book {
             Format: "EPUB".to_string(),
             Size: self.size,
             Url: format!(
-                "{}://{}/download/{book_id}/{book_format}/{filename}",
-                DEFAULT_PROTOCOL,
-                DEFAULT_HOST,
+                "{}/download/{book_id}/{book_format}/{filename}",
+                public_base(),
                 book_id = self.id,
                 book_format = "EPUB",
                 filename = self

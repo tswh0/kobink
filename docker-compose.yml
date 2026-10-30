@@ -1,0 +1,15 @@
+services:
+  kobink:
+    build:
+      context: .
+    image: kobink:local
+    container_name: kobink
+    restart: unless-stopped
+    ports:
+      - "${KOBINK_PORT:-3000}:3000"
+    environment:
+      LIBRARY_PATH: /library
+      PUBLIC_URL: ${PUBLIC_URL:?set PUBLIC_URL in .env, e.g. http://192.168.1.10:3000}
+      RUST_LOG: ${RUST_LOG:-info}
+    volumes:
+      - ${LIBRARY_DIR:-./library}:/library:ro
