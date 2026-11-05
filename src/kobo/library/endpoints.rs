@@ -56,13 +56,13 @@ async fn handle_sync(
     State(library): State<Arc<Mutex<LibraryState>>>,
     _headers: HeaderMap,
 ) -> Result<(StatusCode, HeaderMap, Json<SyncResponse>), AppError> {
-    let events: Vec<SyncEvent> = library
+    let books = library
         .lock()
-        .unwrap()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
         .books
-        .iter()
-        .map(SyncEvent::new)
-        .collect();
+        .clone();
+
+    let events: Vec<SyncEvent> = books.iter().map(SyncEvent::new).collect();
 
     let mut headers = HeaderMap::new();
     if let Ok(token) = HeaderValue::try_from(SyncTokenModel::now().to_header_value()) {

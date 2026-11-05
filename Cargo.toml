@@ -1,8 +1,12 @@
 [package]
 name = "kobink"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2021"
 rust-version = "1.99"
+
+[profile.release]
+lto = "thin"
+strip = true
 
 [dependencies]
 axum = { version = "0.7", features = ["macros"] }

@@ -1,5 +1,5 @@
 use epub::doc::EpubDoc;
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 use uuid::Uuid;
 use walkdir::WalkDir;
 
@@ -17,11 +17,12 @@ pub struct Book {
     pub path: PathBuf,
     pub size: u64,
     pub fixed_layout: bool,
+    pub is_kepub: bool,
 }
 
 impl Book {
     pub fn format(&self) -> &'static str {
-        if self.path.to_string_lossy().ends_with(".kepub.epub") {
+        if self.is_kepub {
             "KEPUB"
         } else {
             "EPUB"
@@ -73,19 +74,20 @@ impl Book {
 #[derive(Debug, Clone)]
 pub struct LibraryState {
     pub path: String,
-    pub books: Vec<Book>,
+    pub books: Arc<Vec<Book>>,
 }
 
 impl LibraryState {
     pub fn new(library_path: &str) -> Self {
         Self {
             path: library_path.to_string(),
-            books: scan(library_path),
+            books: Arc::new(scan(library_path)),
         }
     }
 
     pub fn find_book_by_id(&self, id: &str) -> Option<&Book> {
-        self.books.iter().find(|book| book.id.to_string() == id)
+        let id = id.parse::<Uuid>().ok()?;
+        self.books.iter().find(|book| book.id == id)
     }
 }
 
@@ -148,6 +150,7 @@ pub fn scan(library_path: &str) -> Vec<Book> {
             path: entry.path().to_path_buf(),
             size: entry.metadata().map(|metadata| metadata.len()).unwrap_or(0),
             fixed_layout,
+            is_kepub: filename.ends_with(".kepub.epub"),
         });
     }
 

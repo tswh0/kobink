@@ -13,11 +13,15 @@ pub fn api_key() -> &'static str {
     API_KEY.get_or_init(resolve)
 }
 
-pub fn public_base() -> String {
-    std::env::var("PUBLIC_URL")
-        .unwrap_or_else(|_| "http://localhost:3000".to_string())
-        .trim_end_matches('/')
-        .to_string()
+pub fn public_base() -> &'static str {
+    static PUBLIC_BASE: OnceLock<String> = OnceLock::new();
+
+    PUBLIC_BASE.get_or_init(|| {
+        std::env::var("PUBLIC_URL")
+            .unwrap_or_else(|_| "http://localhost:3000".to_string())
+            .trim_end_matches('/')
+            .to_string()
+    })
 }
 
 pub fn log_endpoint() {

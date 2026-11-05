@@ -62,9 +62,23 @@ fn spawn_library_refresh(library: Arc<Mutex<LibraryState>>, library_path: &str) 
         ticker.tick().await;
         loop {
             ticker.tick().await;
-            let books = crate::library::models::scan(&library_path);
+
+            let path = library_path.clone();
+            let books = match tokio::task::spawn_blocking(move || crate::library::models::scan(&path))
+                .await
+            {
+                Ok(books) => books,
+                Err(error) => {
+                    tracing::warn!("library scan failed: {error}");
+                    continue;
+                }
+            };
+
             let count = books.len();
-            library.lock().unwrap().books = books;
+            library
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .books = Arc::new(books);
             info!("library refreshed: {} books", count);
         }
     });

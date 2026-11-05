@@ -72,7 +72,7 @@ fn initialization() -> String {
             let key = api_key();
 
             if let Some(resources) = root.get_mut("Resources").and_then(Value::as_object_mut) {
-                resources.insert("image_host".to_string(), Value::String(base.clone()));
+                resources.insert("image_host".to_string(), Value::String(base.to_string()));
                 resources.insert(
                     "image_url_template".to_string(),
                     Value::String(format!(
