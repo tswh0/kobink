@@ -180,7 +180,7 @@ expect "distinct ids" "$(field '[.[].NewEntitlement.BookEntitlement.Id] | unique
 expect "kobo timestamp" "$(bval '.NewEntitlement.BookEntitlement.Created' | sed -E 's/[0-9]/N/g')" "NNNN-NN-NNTNN:NN:NNZ"
 expect "series name" "$(bval '.NewEntitlement.BookMetadata.Series.Name')" "BLAME! Master Edition"
 expect "series number" "$(bval '.NewEntitlement.BookMetadata.Series.Number')" 1
-expect "series number float" "$(bval '.NewEntitlement.BookMetadata.Series.NumberFloat | test("^1(\\.0)?$")')" true
+expect "series number float" "$(bval '.NewEntitlement.BookMetadata.Series.NumberFloat == 1')" true
 expect "series id" "$(bval '.NewEntitlement.BookMetadata.Series.Id | test("^[0-9a-f-]{36}$")')" true
 expect "synctoken header" "$(grep -ci '^x-kobo-synctoken: ' sync-headers.txt)" 1
 expect "gzip encoding" "$(curl -s -o /dev/null -D - -H 'Accept-Encoding: gzip' "$BASE/$KEY/kobo/v1/library/sync" | tr -d '\r' | awk 'tolower($1)=="content-encoding:"{print $2}')" gzip
