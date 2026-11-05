@@ -1,102 +1,100 @@
 # Kobink
 
-> Fork of [potatoeggy/kobink](https://github.com/potatoeggy/kobink) with Docker packaging and a fix for the build.
+**Your own Kobo shop, running at home.**
 
-Automatically sync local books to your Kobo by pretending to be the Kobo Store
+A Kobo only knows how to fetch books from the Kobo store. Kobink answers at that address, but
+hands out the files sitting in a folder on your own machine. Point the reader at it once, press
+Sync, and your books appear — covers, series and all.
 
-### Setup
+No account, no upload, nothing leaves your network.
 
-On the Kobo, open `/.kobo/Kobo/Kobo eReader.conf` and change `api_endpoint` to your local machine where Kobink runs (e.g., `http://192.168.0.1:3000/<API_KEY>/kobo` — the key is printed at startup, and the device appends `/v1` itself). By default, Kobink runs on port 3000.
+## How it works
 
-Install dependencies and run:
+The reader regularly calls the store to ask "what do I own?". Kobink sits at that address and
+replies with your files, described the way the device expects. As far as the Kobo can tell, it is
+talking to Kobo.
+
+The address contains a long secret code that is printed once, when the server starts:
 
 ```
-LIBRARY_PATH=/path/to/epubs cargo run
+http://192.168.1.10:3000/9f3c1d0c8b2e4a76b1d5f0a2c7e93b48/kobo
 ```
 
-Press "Sync" on the Kobo — all EPUB files in `LIBRARY_PATH` should now automatically be fetched to the device.
+Anything asked for without that code simply does not exist. You can therefore put it on a public
+address without anyone being able to browse your shelf — the full link is the key.
 
-### Docker
+## What it does
 
-```bash
-cp .env.example .env    # edit PUBLIC_URL and LIBRARY_DIR
-docker compose up -d    # pulls ghcr.io/tswh0/kobink:latest
+- **Your folder is the shop.** Drop EPUBs in a directory and they show up on the device.
+- **Covers that fit the screen.** The reader asks for cover images in several sizes; Kobink cuts
+  them out of the book itself, so shelves are never grey.
+- **Manga looks like manga.** Comics converted with [KCC](https://github.com/ciromattia/kcc) are
+  fixed pages. Kobink tells the device so, and pages fill the screen instead of floating in a
+  text layout with bands around them.
+- **Volumes arrive as a series.** Series info is read from the book, or from the title when the
+  book has none (`Fire Punch v03`), so the reader groups and numbers them.
+- **Quick repeat syncs.** Once everything is on the device, the next sync is a few kilobytes.
+  Add or change a file and it is picked up on the following pass.
+- **New books appear by themselves.** The folder is re-read every ten minutes, no restart needed.
+- **One small container.** No database, no account, one folder to mount.
+
+## What is different from the original
+
+This is a fork of [potatoeggy/kobink](https://github.com/potatoeggy/kobink). Upstream is the bare
+protocol: it serves files and trusts anyone who can reach it. This fork adds:
+
+- a secret code in the URL, generated on first start and printed in the log, so the server can be
+  exposed through a reverse proxy without giving your library away
+- a build that works: upstream does not compile (a source file is missing from the repo) and
+  hardcodes the author's domain into download links
+- covers rendered by the server, with a cache on disk
+- correct handling of KCC manga, which upstream advertises wrongly and the device then letterboxes
+- series grouping, incremental sync, gzip, and a periodic rescan of the folder
+- no database: the Rust dependencies for SQL were dropped along with the leftover demo endpoints
+- a test that runs the real binary and checks the whole protocol on every push
+
+## Running it
+
+```yaml
+services:
+  kobink:
+    image: ghcr.io/tswh0/kobink:latest
+    ports: ["3000:3000"]
+    environment:
+      PUBLIC_URL: http://192.168.1.10:3000
+      LIBRARY_DIR: /books
+    volumes:
+      - /path/to/books:/library:ro
+      - ./data:/app/data
 ```
 
-To compile the image yourself instead: `docker compose build`.
+`PUBLIC_URL` must be the address the **reader** uses to reach the machine, not the container.
 
-| Variable | Meaning |
-|---|---|
-| `PUBLIC_URL` | Address the **Kobo** uses to reach this server, e.g. `http://192.168.1.10:3000`. Baked into every download URL, so it must be reachable from the device. |
-| `LIBRARY_DIR` | Host folder with your EPUBs, mounted read-only at `/library`. |
-| `LIBRARY_REFRESH_SECONDS` | How often the library is rescanned, default `600` (10 min); `0` disables it. |
-| `API_KEY` | Optional. Pins the API key; leave empty to have one generated on first start. |
-| `API_KEY_FILE` | Where the generated key is stored, default `/app/data/api-key` (mounted at `./data`). |
-| `COVER_CACHE_DIR` | Where rendered covers are cached, default `/app/data/covers`. |
-| `KOBINK_PORT` | Host port, default `3000`. |
-| `KOBINK_TAG` | Image tag to run, default `latest`. |
-| `RUST_LOG` | `info` by default, `debug` for troubleshooting. |
-
-### Authentication
-
-Every request below the API key is rejected (404), so the endpoint can be exposed through a
-reverse proxy without granting access to the library.
-
-On first start a key is generated, written to `API_KEY_FILE` and printed in the logs:
+Start it, then look up the code and the ready-made address:
 
 ```bash
 docker compose logs kobink | grep -A2 "api key"
 ```
 
-```
---------------------------------------------------------------
- api key:      9f3c1d0c8b2e4a76b1d5f0a2c7e93b48
- api_endpoint: http://192.168.1.10:3000/9f3c1d0c8b2e4a76b1d5f0a2c7e93b48/kobo
---------------------------------------------------------------
-```
-
-Point the device at the container, with the key in the path:
+On the Kobo, edit `.kobo/Kobo/Kobo eReader.conf` and set:
 
 ```ini
 [OneStoreServices]
 api_endpoint=http://192.168.1.10:3000/9f3c1d0c8b2e4a76b1d5f0a2c7e93b48/kobo
 ```
 
-The endpoint ends at `/kobo` — the device appends `/v1` itself. Including it yields `/v1/v1/...`
-and a 404 that says so.
+The path ends at `/kobo` — the device adds `/v1` itself. Press Sync.
 
-Set `API_KEY` in `.env` instead if you would rather manage the key yourself (e.g. supply a
-reverse proxy config before the first start).
+Other settings: `LIBRARY_REFRESH_SECONDS` (default `600`, `0` disables the rescan), `API_KEY`
+(pin your own code instead of the generated one), `KOBINK_PORT` (default `3000`), `RUST_LOG`.
 
-### Image
+## Good to know
 
-`ghcr.io/tswh0/kobink` is published by GitHub Actions for `linux/amd64` and `linux/arm64`.
-Images are built on version tags only, so `main` stays free to move.
+- Plain HTTP on your own network is fine. If you put it behind a reverse proxy, use HTTPS and
+  treat the link like a password — whoever has it can read the library.
+- Books stay as they are: `.epub` for normal books, `.kepub.epub` (KCC) for manga.
+- If an old version of a book sticks on the device, delete it there and sync again.
 
-| Tag | Points at |
-|---|---|
-| `v1.2.3`, `v1.2`, `v1` | that release |
-| `latest` | newest `v*` release |
-| `sha-<short>` | one commit within a release build |
+## License
 
-```bash
-docker pull ghcr.io/tswh0/kobink:latest
-```
-
-Notes:
-
-- The image builds from this tree. Two fixes are applied on top of upstream `a82976b`:
-  `src/library/models.rs` makes the download host configurable via `PUBLIC_URL` instead of the
-  hardcoded `tickets.eggworld.me`; `src/main.rs` no longer declares a `mod models;` whose file
-  was never committed upstream (that broke the build).
-- Fixed-layout books (`rendition:layout = pre-paginated`, which is what KCC emits) are
-  advertised as `EPUB3FL`, so the device renders them full-bleed instead of letterboxing
-  fixed pages inside a reflowable text area.
-- Series metadata comes from the EPUB (`calibre:series`, EPUB 3 `belongs-to-collection`), falling
-  back to the title (`Fire Punch v03`), so volumes reach the device as one series.
-- The library is rescanned every `LIBRARY_REFRESH_SECONDS` (default 10 minutes); add books and
-  wait for the next pass, no restart needed.
-- `ci/smoke.sh` runs the release binary against fixtures from `ci/fixtures.py` and checks auth,
-  sync shape, series, formats, covers, downloads and the background refresh. `cargo check` runs on
-  every push, the smoke test on `main` and on release tags; `.github/workflows/image.yml`
-  publishes the container image.
+AGPL-3.0, same as the original.
