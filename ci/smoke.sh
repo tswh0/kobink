@@ -171,6 +171,9 @@ expect "distinct ids" "$(field '[.[].NewEntitlement.BookEntitlement.Id] | unique
 expect "kobo timestamp" "$(bval '.NewEntitlement.BookEntitlement.Created' | sed -E 's/[0-9]/N/g')" "NNNN-NN-NNTNN:NN:NNZ"
 expect "series omitted" "$(bval '.NewEntitlement.BookMetadata | has("Series")')" false
 expect "synctoken header" "$(grep -ci '^x-kobo-synctoken: ' sync-headers.txt)" 1
+expect "gzip encoding" "$(curl -s -o /dev/null -D - -H 'Accept-Encoding: gzip' "$BASE/$KEY/kobo/v1/library/sync" | tr -d '\r' | awk 'tolower($1)=="content-encoding:"{print $2}')" gzip
+token=$(tr -d '\r' < sync-headers.txt | awk 'tolower($1)=="x-kobo-synctoken:"{print $2}')
+expect "incremental sync" "$(curl -s -H "x-kobo-synctoken: $token" "$BASE/$KEY/kobo/v1/library/sync" | jq 'length')" 0
 expect "kepub format" "$(bval '.NewEntitlement.BookMetadata.DownloadUrls | map(.Format) | join(",")')" KEPUB
 
 fixed=$(printf '%s' "$sync" | jq '.[] | select(.NewEntitlement.BookMetadata.Title == "Oshi no Ko v01")')
@@ -195,7 +198,7 @@ case "$thumb" in
         ;;
 esac
 expect "cover large" "$(jpeg_dims "$BASE/$KEY/$book/1264/1680/80/False/image.jpg")" "800x1200"
-expect "cover cached" "$(ls "$COVER_CACHE_DIR" | wc -l | tr -d ' ')" 2
+expect "cover cached" "$(ls "$COVER_CACHE_DIR" | wc -l | tr -d ' ')" 3
 expect "analytics" "$(code -X POST "$BASE/$KEY/kobo/v1/analytics/event")" 200
 expect "download" "$(code "$url")" 200
 expect "download content type" \

@@ -1,6 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use axum::{
+    body::Bytes,
     extract::{Path, State},
     http::{header, HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
@@ -8,9 +9,14 @@ use axum::{
     Json, Router,
 };
 
-use crate::{kobo::models::SyncTokenModel, library::models::LibraryState, server::AppError};
+use crate::{
+    kobo::models::SyncToken,
+    library::models::{Book, LibraryState},
+};
 
-use super::models::{Entitlement, SyncEvent, SyncResponse};
+use super::models::{Entitlement, SyncEvent};
+
+static SYNC_CACHE: Mutex<Option<(u64, Bytes)>> = Mutex::new(None);
 
 pub fn create_library_router() -> Router<Arc<Mutex<LibraryState>>> {
     Router::new()
@@ -31,7 +37,9 @@ async fn handle_metadata(
     Path(book_id): Path<String>,
 ) -> Response {
     let metadata = {
-        let library = library.lock().unwrap();
+        let library = library
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         library
             .find_book_by_id(&book_id)
             .map(|book| Entitlement::new(book).BookMetadata)
@@ -54,20 +62,51 @@ async fn stub() -> StatusCode {
 
 async fn handle_sync(
     State(library): State<Arc<Mutex<LibraryState>>>,
-    _headers: HeaderMap,
-) -> Result<(StatusCode, HeaderMap, Json<SyncResponse>), AppError> {
-    let books = library
+    headers: HeaderMap,
+) -> Response {
+    let (version, books) = {
+        let library = library
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        (library.version, library.books.clone())
+    };
+
+    let known = headers
+        .get("x-kobo-synctoken")
+        .and_then(|value| value.to_str().ok())
+        .and_then(SyncToken::decode);
+
+    let body = match known {
+        Some(token) if token.library == version => Bytes::from_static(b"[]"),
+        _ => sync_body(version, &books),
+    };
+
+    let mut response_headers = HeaderMap::new();
+    if let Ok(token) = HeaderValue::try_from(SyncToken::new(version).encode()) {
+        response_headers.insert("x-kobo-synctoken", token);
+    }
+    response_headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/json; charset=utf-8"),
+    );
+
+    (StatusCode::OK, response_headers, body).into_response()
+}
+
+fn sync_body(version: u64, books: &[Book]) -> Bytes {
+    let mut cache = SYNC_CACHE
         .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .books
-        .clone();
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
 
-    let events: Vec<SyncEvent> = books.iter().map(SyncEvent::new).collect();
-
-    let mut headers = HeaderMap::new();
-    if let Ok(token) = HeaderValue::try_from(SyncTokenModel::now().to_header_value()) {
-        headers.insert("x-kobo-synctoken", token);
+    if let Some((cached_version, body)) = cache.as_ref() {
+        if *cached_version == version {
+            return body.clone();
+        }
     }
 
-    Ok((StatusCode::OK, headers, Json(events)))
+    let events: Vec<SyncEvent> = books.iter().map(SyncEvent::new).collect();
+    let body = Bytes::from(serde_json::to_vec(&events).unwrap_or_default());
+    *cache = Some((version, body.clone()));
+
+    body
 }

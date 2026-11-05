@@ -17,6 +17,7 @@ use std::{
     net::SocketAddr,
     sync::{Arc, Mutex},
 };
+use tower_http::compression::CompressionLayer;
 use tracing::info;
 
 pub async fn start_server() {
@@ -30,7 +31,10 @@ pub async fn start_server() {
     let api_key = auth::api_key();
     let app = Router::<Arc<Mutex<LibraryState>>>::new()
         .route("/", get(root))
-        .nest(&format!("/{api_key}/kobo/v1"), create_kobo_router())
+        .nest(
+            &format!("/{api_key}/kobo/v1"),
+            create_kobo_router().layer(CompressionLayer::new()),
+        )
         .nest(&format!("/{api_key}/download"), create_download_router())
         .merge(kobo::covers::create_cover_router(&format!("/{api_key}")))
         .fallback(not_found)
@@ -63,22 +67,35 @@ fn spawn_library_refresh(library: Arc<Mutex<LibraryState>>, library_path: &str) 
         loop {
             ticker.tick().await;
 
-            let path = library_path.clone();
-            let books = match tokio::task::spawn_blocking(move || crate::library::models::scan(&path))
-                .await
-            {
-                Ok(books) => books,
-                Err(error) => {
-                    tracing::warn!("library scan failed: {error}");
-                    continue;
-                }
-            };
-
-            let count = books.len();
-            library
+            let previous = library
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
-                .books = Arc::new(books);
+                .books
+                .clone();
+
+            let path = library_path.clone();
+            let books =
+                match tokio::task::spawn_blocking(move || crate::library::models::scan(&path, &previous))
+                    .await
+                {
+                    Ok(books) => books,
+                    Err(error) => {
+                        tracing::warn!("library scan failed: {error}");
+                        continue;
+                    }
+                };
+
+            let version = crate::library::models::version(&books);
+            let count = books.len();
+
+            {
+                let mut state = library
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                state.books = Arc::new(books);
+                state.version = version;
+            }
+
             info!("library refreshed: {} books", count);
         }
     });

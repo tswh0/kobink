@@ -12,7 +12,7 @@ use axum::{
     Router,
 };
 use epub::doc::EpubDoc;
-use image::{codecs::jpeg::JpegEncoder, imageops::FilterType, ExtendedColorType};
+use image::{codecs::jpeg::JpegEncoder, imageops::FilterType, DynamicImage, ExtendedColorType};
 use tracing::warn;
 
 use crate::library::models::LibraryState;
@@ -20,6 +20,7 @@ use crate::library::models::LibraryState;
 const DEFAULT_DIMENSION: u32 = 600;
 const MAX_DIMENSION: u32 = 3000;
 const JPEG_QUALITY: u8 = 80;
+const PREWARM: [(u32, u32); 3] = [(149, 223), (355, 530), (1264, 1680)];
 
 pub fn create_cover_router(prefix: &str) -> Router<Arc<Mutex<LibraryState>>> {
     Router::new().route(
@@ -33,7 +34,9 @@ async fn handle_cover(
     Path((book_id, width, height, _)): Path<(String, String, String, String)>,
 ) -> Response {
     let path = {
-        let library = library.lock().unwrap();
+        let library = library
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         library.find_book_by_id(&book_id).map(|book| book.path.clone())
     };
 
@@ -76,9 +79,7 @@ fn dimension(value: &str) -> u32 {
 }
 
 fn cover(book_id: &str, path: PathBuf, width: u32, height: u32) -> Option<Vec<u8>> {
-    let cached = cache_path(book_id, width, height);
-
-    if let Some(bytes) = cached.as_ref().and_then(|path| fs::read(path).ok()) {
+    if let Some(bytes) = cache_path(book_id, width, height).and_then(|path| fs::read(path).ok()) {
         return Some(bytes);
     }
 
@@ -93,10 +94,29 @@ fn cover(book_id: &str, path: PathBuf, width: u32, height: u32) -> Option<Vec<u8
         }
     };
 
-    let fitted = if decoded.width() <= width && decoded.height() <= height {
-        decoded
+    let requested = render(&decoded, width, height)?;
+    store(book_id, width, height, &requested);
+
+    for (warm_width, warm_height) in PREWARM {
+        if (warm_width, warm_height) == (width, height) {
+            continue;
+        }
+        if cache_path(book_id, warm_width, warm_height).is_some_and(|path| path.exists()) {
+            continue;
+        }
+        if let Some(bytes) = render(&decoded, warm_width, warm_height) {
+            store(book_id, warm_width, warm_height, &bytes);
+        }
+    }
+
+    Some(requested)
+}
+
+fn render(image: &DynamicImage, width: u32, height: u32) -> Option<Vec<u8>> {
+    let fitted = if image.width() <= width && image.height() <= height {
+        image.clone()
     } else {
-        decoded.resize(width, height, FilterType::Triangle)
+        image.resize(width, height, FilterType::Triangle)
     };
 
     let rgb = fitted.to_rgb8();
@@ -110,14 +130,16 @@ fn cover(book_id: &str, path: PathBuf, width: u32, height: u32) -> Option<Vec<u8
         )
         .ok()?;
 
-    if let Some(path) = cached {
+    Some(bytes)
+}
+
+fn store(book_id: &str, width: u32, height: u32, bytes: &[u8]) {
+    if let Some(path) = cache_path(book_id, width, height) {
         if let Some(parent) = path.parent() {
             let _ = fs::create_dir_all(parent);
         }
-        let _ = fs::write(path, &bytes);
+        let _ = fs::write(path, bytes);
     }
-
-    Some(bytes)
 }
 
 fn cache_path(book_id: &str, width: u32, height: u32) -> Option<PathBuf> {

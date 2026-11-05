@@ -1,6 +1,5 @@
 #![allow(non_snake_case)]
 use base64::{engine::general_purpose::STANDARD, Engine as _};
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -14,46 +13,26 @@ pub struct AuthDeviceRequest {
     pub UserKey: String,
 }
 
-// from calibre-web,
 #[derive(Debug, Serialize, Deserialize)]
-pub struct _SyncTokenData {
-    pub raw_kobo_store_token: String,
-    #[serde(with = "chrono::serde::ts_seconds")]
-    pub books_last_modified: DateTime<Utc>,
-    #[serde(with = "chrono::serde::ts_seconds")]
-    pub books_last_created: DateTime<Utc>,
-    #[serde(with = "chrono::serde::ts_seconds")]
-    pub archive_last_modified: DateTime<Utc>,
-    #[serde(with = "chrono::serde::ts_seconds")]
-    pub reading_state_last_modified: DateTime<Utc>,
-    #[serde(with = "chrono::serde::ts_seconds")]
-    pub tags_last_modified: DateTime<Utc>,
+pub struct SyncToken {
+    pub version: u32,
+    pub library: u64,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct SyncTokenModel {
-    pub version: String,
-    pub data: _SyncTokenData,
-}
-
-impl SyncTokenModel {
-    pub fn now() -> Self {
-        let now = Utc::now();
+impl SyncToken {
+    pub fn new(library: u64) -> Self {
         Self {
-            version: "1".to_string(),
-            data: _SyncTokenData {
-                raw_kobo_store_token: String::new(),
-                books_last_modified: now,
-                books_last_created: now,
-                archive_last_modified: now,
-                reading_state_last_modified: now,
-                tags_last_modified: now,
-            },
+            version: 1,
+            library,
         }
     }
 
-    pub fn to_header_value(&self) -> String {
-        STANDARD.encode(serde_json::to_string(self).unwrap_or_default())
+    pub fn encode(&self) -> String {
+        STANDARD.encode(serde_json::to_vec(self).unwrap_or_default())
+    }
+
+    pub fn decode(value: &str) -> Option<Self> {
+        serde_json::from_slice(&STANDARD.decode(value).ok()?).ok()
     }
 }
 

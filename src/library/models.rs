@@ -1,5 +1,10 @@
 use epub::doc::EpubDoc;
-use std::{path::PathBuf, sync::Arc};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+    sync::Arc,
+    time::{SystemTime, UNIX_EPOCH},
+};
 use uuid::Uuid;
 use walkdir::WalkDir;
 
@@ -16,6 +21,7 @@ pub struct Book {
     pub description: String,
     pub path: PathBuf,
     pub size: u64,
+    pub modified: Option<SystemTime>,
     pub fixed_layout: bool,
     pub is_kepub: bool,
 }
@@ -75,13 +81,18 @@ impl Book {
 pub struct LibraryState {
     pub path: String,
     pub books: Arc<Vec<Book>>,
+    pub version: u64,
 }
 
 impl LibraryState {
     pub fn new(library_path: &str) -> Self {
+        let books = scan(library_path, &[]);
+        let version = version(&books);
+
         Self {
             path: library_path.to_string(),
-            books: Arc::new(scan(library_path)),
+            books: Arc::new(books),
+            version,
         }
     }
 
@@ -104,15 +115,60 @@ pub fn book_id(seed: &str) -> Uuid {
     Uuid::from_u128(hash)
 }
 
-pub fn scan(library_path: &str) -> Vec<Book> {
+pub fn version(books: &[Book]) -> u64 {
+    const OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
+    const PRIME: u64 = 0x0000_0100_0000_01b3;
+
+    let mut hash = OFFSET_BASIS;
+    for book in books {
+        let size = book.size.to_le_bytes();
+        let modified = book
+            .modified
+            .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+            .map(|duration| duration.as_nanos())
+            .unwrap_or(0)
+            .to_le_bytes();
+
+        for bytes in [book.id.as_bytes(), size.as_slice(), modified.as_slice()] {
+            for byte in bytes {
+                hash ^= *byte as u64;
+                hash = hash.wrapping_mul(PRIME);
+            }
+        }
+    }
+
+    hash
+}
+
+pub fn scan(library_path: &str, previous: &[Book]) -> Vec<Book> {
     let mut books = Vec::new();
     let mut unreadable = 0;
+
+    let known: HashMap<&Path, &Book> = previous
+        .iter()
+        .map(|book| (book.path.as_path(), book))
+        .collect();
 
     for entry in WalkDir::new(library_path)
         .into_iter()
         .filter_map(|e| e.ok())
         .filter(|e| e.path().extension().is_some_and(|ext| ext == "epub"))
     {
+        let metadata = match entry.metadata() {
+            Ok(metadata) => metadata,
+            Err(_) => continue,
+        };
+
+        let size = metadata.len();
+        let modified = metadata.modified().ok();
+
+        if let Some(book) = known.get(entry.path()) {
+            if book.size == size && book.modified == modified {
+                books.push((*book).clone());
+                continue;
+            }
+        }
+
         let epub = match EpubDoc::new(entry.path()) {
             Ok(epub) => epub,
             Err(error) => {
@@ -148,7 +204,8 @@ pub fn scan(library_path: &str) -> Vec<Book> {
             authors: vec![author],
             description,
             path: entry.path().to_path_buf(),
-            size: entry.metadata().map(|metadata| metadata.len()).unwrap_or(0),
+            size,
+            modified,
             fixed_layout,
             is_kepub: filename.ends_with(".kepub.epub"),
         });
@@ -160,5 +217,6 @@ pub fn scan(library_path: &str) -> Vec<Book> {
         library_path,
         unreadable
     );
+
     books
 }
