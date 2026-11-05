@@ -59,16 +59,18 @@ protocol: it serves files and trusts anyone who can reach it. This fork adds:
 services:
   kobink:
     image: ghcr.io/tswh0/kobink:latest
+    restart: unless-stopped
     ports: ["3000:3000"]
     environment:
       PUBLIC_URL: http://192.168.1.10:3000
-      LIBRARY_DIR: /books
     volumes:
       - /path/to/books:/library:ro
       - ./data:/app/data
 ```
 
 `PUBLIC_URL` must be the address the **reader** uses to reach the machine, not the container.
+The compose file in this repository does the same thing, taking `PUBLIC_URL` and `LIBRARY_DIR`
+from a `.env` file.
 
 Start it, then look up the code and the ready-made address:
 
@@ -86,7 +88,8 @@ api_endpoint=http://192.168.1.10:3000/9f3c1d0c8b2e4a76b1d5f0a2c7e93b48/kobo
 The path ends at `/kobo` — the device adds `/v1` itself. Press Sync.
 
 Other settings: `LIBRARY_REFRESH_SECONDS` (default `600`, `0` disables the rescan), `API_KEY`
-(pin your own code instead of the generated one), `KOBINK_PORT` (default `3000`), `RUST_LOG`.
+(pin your own code instead of the generated one), `RUST_LOG`. The repository's compose file also
+reads `LIBRARY_DIR`, `KOBINK_PORT` and `KOBINK_TAG` from `.env`.
 
 ## Good to know
 
