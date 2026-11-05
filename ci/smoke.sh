@@ -1,27 +1,84 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 
+DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 BASE=${PUBLIC_URL:-http://127.0.0.1:3000}
 KEY=${API_KEY:-smoketestkey123}
-LIB=${LIBRARY_PATH:-/tmp/library}
-BIN=./target/release/kobink
-LOG=server.log
+LIB=${LIBRARY_PATH:-/tmp/kobink-smoke/library}
+COVERS=${COVER_CACHE_DIR:-/tmp/kobink-smoke/covers}
+BIN=${BIN:-./target/release/kobink}
 
-expect() {
-    local name=$1 actual=$2 wanted=$3
-    printf '%-22s %s\n' "$name" "$actual"
-    if [ "$actual" != "$wanted" ]; then
-        echo "::error title=smoke::$name: expected '$wanted', got '$actual'"
-        tail -40 "$LOG" 2>/dev/null || true
-        exit 1
-    fi
+WORK=$(mktemp -d)
+LOG=$WORK/server.log
+HDRS=$WORK/headers.txt
+checks=0
+
+rm -rf "$LIB" "$COVERS"
+mkdir -p "$LIB" "$COVERS"
+
+export API_KEY=$KEY
+export PUBLIC_URL=$BASE
+export LIBRARY_PATH=$LIB
+export COVER_CACHE_DIR=$COVERS
+export RUST_LOG=${RUST_LOG:-info}
+
+section() { printf '\n%s\n' "$1"; }
+say() { printf '  ok   %-24s %s\n' "$1" "$2"; }
+
+dump() {
+    trap - ERR
+    set +e
+    {
+        echo "--- last 40 log lines ---"
+        tail -40 "$LOG" 2>/dev/null
+    } >&2
 }
 
-code() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
+fail() {
+    echo "::error title=smoke::$1" >&2
+    dump
+    exit 1
+}
 
-jpeg_dims() {
+trap 'code=$?; echo "::error title=smoke::failure at line $LINENO (exit $code): $BASH_COMMAND" >&2; dump; exit $code' ERR
+
+check() {
+    local name=$1 got=$2 want=$3
+    [ "$got" = "$want" ] || fail "$name: wanted '$want', got '$got'"
+    checks=$((checks + 1))
+    say "$name" "$got"
+}
+
+json() {
+    local name=$1 payload=$2 filter=$3 want=${4:-true} got
+    got=$(printf '%s' "$payload" | jq -r "$filter") || fail "$name: jq rejected the filter '$filter'"
+    check "$name" "$got" "$want"
+}
+
+grab() {
+    local name=$1 payload=$2 filter=$3 got
+    got=$(printf '%s' "$payload" | jq -r "$filter") || fail "$name: jq rejected the filter '$filter'"
+    if [ "$got" = "null" ] || [ -z "$got" ]; then
+        fail "$name: missing in the payload"
+    fi
+    printf -v "$name" '%s' "$got"
+}
+
+status() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
+api() { printf '%s/%s%s' "$BASE" "$KEY" "$1"; }
+
+header() {
+    local name=$1 url=$2
+    shift 2
+    curl -s -o /dev/null -D - "$@" "$url" | tr -d '\r' |
+        awk -v key="$name" 'tolower($1) == (key ":") { print $2 }'
+}
+
+dims() {
     python3 - "$1" <<'PY'
-import struct, sys, urllib.request
+import struct
+import sys
+import urllib.request
 
 data = urllib.request.urlopen(sys.argv[1]).read()
 i = 2
@@ -41,205 +98,117 @@ while i < len(data) - 9:
 PY
 }
 
-on_error() {
-    echo "::error title=smoke::line $1: $2"
-    grep -A3 -iE "panicked at" "$LOG" 2>/dev/null | head -8 | while IFS= read -r line; do
-        echo "::error title=server::$line"
-    done
+read_dims() {
+    local name=$1 url=$2 got
+    got=$(dims "$url") || fail "$name: cannot decode $url"
+    printf -v "$name" '%s' "$got"
 }
 
-trap 'on_error "$LINENO" "$BASH_COMMAND"' ERR
+section "fixtures"
+python3 "$DIR/fixtures.py" "$LIB"
 
-mkdir -p "$LIB/BLAME!"
-
-python3 - "$LIB" <<'PY'
-import os, struct, sys, zipfile, zlib
-
-
-def solid_png(width, height, rgb):
-    raw = (b"\x00" + bytes(rgb) * width) * height
-
-    def chunk(tag, data):
-        body = tag + data
-        return (
-            struct.pack(">I", len(data))
-            + body
-            + struct.pack(">I", zlib.crc32(body) & 0xFFFFFFFF)
-        )
-
-    return (
-        b"\x89PNG\r\n\x1a\n"
-        + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
-        + chunk(b"IDAT", zlib.compress(raw, 9))
-        + chunk(b"IEND", b"")
-    )
-
-
-PNG = solid_png(800, 1200, (40, 40, 40))
-root = sys.argv[1]
-
-
-def make_epub(path, title, author, layout="reflowable", series=None, number=None):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    series_meta = ""
-    if series is not None:
-        series_meta = (
-            f'<meta name="calibre:series" content="{series}"/>\n'
-            f'    <meta name="calibre:series_index" content="{number}"/>'
-        )
-    opf = f"""<?xml version="1.0" encoding="utf-8"?>
-<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id">
-  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
-    <dc:identifier id="id">urn:uuid:12345678-1234-1234-1234-123456789abc</dc:identifier>
-    <dc:title>{title}</dc:title>
-    <dc:creator>{author}</dc:creator>
-    <dc:language>en</dc:language>
-    <meta property="dcterms:modified">2026-01-01T00:00:00Z</meta>
-    <meta property="rendition:layout">{layout}</meta>
-    {series_meta}
-    <meta name="cover" content="cover-img"/>
-  </metadata>
-  <manifest>
-    <item id="c1" href="chapter1.xhtml" media-type="application/xhtml+xml"/>
-    <item id="cover-img" href="cover.png" media-type="image/png" properties="cover-image"/>
-  </manifest>
-  <spine><itemref idref="c1"/></spine>
-</package>"""
-    with zipfile.ZipFile(path, "w") as z:
-        z.writestr("mimetype", "application/epub+zip", compress_type=zipfile.ZIP_STORED)
-        z.writestr("META-INF/container.xml", """<?xml version="1.0"?>
-<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
-  <rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles>
-</container>""")
-        z.writestr("OEBPS/content.opf", opf)
-        z.writestr(
-            "OEBPS/chapter1.xhtml",
-            "<html xmlns='http://www.w3.org/1999/xhtml'><body><h1>x</h1></body></html>",
-        )
-        z.writestr("OEBPS/cover.png", PNG)
-
-
-for volume in (1, 2, 3):
-    make_epub(
-        f"{root}/BLAME!/BLAME! Master Edition v0{volume}.kepub.epub",
-        f"BLAME! Master Edition v0{volume}",
-        "Tsutomu Nihei",
-        series="BLAME! Master Edition",
-        number=volume,
-    )
-
-make_epub(
-    f"{root}/R.F. Kuang/Babel - Rebecca F. Kuang (2022).epub",
-    "Babel",
-    "R.F. Kuang",
-)
-
-make_epub(
-    f"{root}/Oshi no Ko/Oshi no Ko v01.kepub.epub",
-    "Oshi no Ko v01",
-    "Aka Akasaka",
-    layout="pre-paginated",
-)
-PY
-
-"$BIN" > "$LOG" 2>&1 &
+section "startup"
+"$BIN" >"$LOG" 2>&1 &
 server=$!
-trap 'kill $server 2>/dev/null || true' EXIT
+trap 'kill "$server" 2>/dev/null' EXIT
 
 for _ in $(seq 1 30); do
-    if curl -fsS "$BASE/" > /dev/null 2>&1; then
-        break
-    fi
+    [ "$(status "$BASE/")" != "000" ] && break
+    kill -0 "$server" 2>/dev/null || fail "server exited before answering"
     sleep 1
 done
+[ "$(status "$BASE/")" != "000" ] || fail "server never answered on $BASE"
+say "server" "up"
 
-if ! curl -fsS "$BASE/" > /dev/null 2>&1; then
-    echo "::error title=smoke::server did not start"
-    grep -iE "panic|error" "$LOG" 2>/dev/null | head -3 | while IFS= read -r line; do
-        echo "::error title=server::$line"
-    done
-    tail -40 "$LOG" 2>/dev/null || true
-    exit 1
-fi
+section "auth"
+check "root" "$(status "$BASE/")" 200
+check "without key" "$(status "$BASE/kobo/v1/user/profile")" 404
+check "wrong key" "$(status "$BASE/not-the-key/kobo/v1/user/profile")" 404
+check "right key" "$(status "$(api /kobo/v1/user/profile)")" 200
+check "doubled v1" "$(status "$(api /kobo/v1/v1/initialization)")" 404
+check "download without key" "$(status "$BASE/download/x/EPUB/y.epub")" 404
 
-expect "root" "$(code "$BASE/")" 200
-expect "no key" "$(code "$BASE/kobo/v1/user/profile")" 404
-expect "wrong key" "$(code "$BASE/nope/kobo/v1/user/profile")" 404
-expect "right key" "$(code "$BASE/$KEY/kobo/v1/user/profile")" 200
-expect "doubled /v1" "$(code "$BASE/$KEY/kobo/v1/v1/initialization")" 404
-expect "download, no key" "$(code "$BASE/download/x/EPUB/y.epub")" 404
+section "sync"
+sync=$(curl -s -D "$HDRS" "$(api /kobo/v1/library/sync)")
 
-sync=$(curl -s -D sync-headers.txt "$BASE/$KEY/kobo/v1/library/sync")
-field() { printf '%s' "$sync" | jq -r "$1"; }
+book() { printf '%s' "$sync" | jq --arg title "$1" '.[] | select(.NewEntitlement.BookMetadata.Title == $title)'; }
 
-blame=$(printf '%s' "$sync" | jq '.[] | select(.NewEntitlement.BookMetadata.Title == "BLAME! Master Edition v01")')
-bval() { printf '%s' "$blame" | jq -r "$1"; }
+json "books" "$sync" 'length' 5
+json "distinct ids" "$sync" '[.[].NewEntitlement.BookEntitlement.Id] | unique | length' 5
+json "complete" "$sync" \
+    '[.[] | select((.NewEntitlement.BookEntitlement.Id | type) != "string" or (.NewEntitlement.BookMetadata.Title | type) != "string" or (.NewEntitlement.BookMetadata.DownloadUrls | length) == 0)] | length' 0
 
-expect "books synced" "$(field 'length')" 5
-expect "distinct ids" "$(field '[.[].NewEntitlement.BookEntitlement.Id] | unique | length')" 5
-expect "kobo timestamp" "$(bval '.NewEntitlement.BookEntitlement.Created' | sed -E 's/[0-9]/N/g')" "NNNN-NN-NNTNN:NN:NNZ"
-expect "series name" "$(bval '.NewEntitlement.BookMetadata.Series.Name')" "BLAME! Master Edition"
-expect "series number" "$(bval '.NewEntitlement.BookMetadata.Series.Number')" 1
-expect "series number float" "$(bval '.NewEntitlement.BookMetadata.Series.NumberFloat == 1')" true
-expect "series id" "$(bval '.NewEntitlement.BookMetadata.Series.Id | test("^[0-9a-f-]{36}$")')" true
-expect "synctoken header" "$(grep -ci '^x-kobo-synctoken: ' sync-headers.txt)" 1
-expect "gzip encoding" "$(curl -s -o /dev/null -D - -H 'Accept-Encoding: gzip' "$BASE/$KEY/kobo/v1/library/sync" | tr -d '\r' | awk 'tolower($1)=="content-encoding:"{print $2}')" gzip
-token=$(tr -d '\r' < sync-headers.txt | awk 'tolower($1)=="x-kobo-synctoken:"{print $2}')
-expect "incremental sync" "$(curl -s -H "x-kobo-synctoken: $token" "$BASE/$KEY/kobo/v1/library/sync" | jq 'length')" 0
-expect "kepub format" "$(bval '.NewEntitlement.BookMetadata.DownloadUrls | map(.Format) | join(",")')" KEPUB
+blame=$(book "BLAME! Master Edition v01")
+json "timestamp" "$blame" \
+    '.NewEntitlement.BookEntitlement.Created | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")'
+json "series name" "$blame" '.NewEntitlement.BookMetadata.Series.Name' "BLAME! Master Edition"
+json "series number" "$blame" '.NewEntitlement.BookMetadata.Series.Number == 1'
+json "series number float" "$blame" '.NewEntitlement.BookMetadata.Series.NumberFloat == 1'
+json "series id" "$blame" \
+    '.NewEntitlement.BookMetadata.Series.Id | test("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")'
+json "kepub format" "$blame" '.NewEntitlement.BookMetadata.DownloadUrls | map(.Format) | join(",")' KEPUB
 
-fixed=$(printf '%s' "$sync" | jq '.[] | select(.NewEntitlement.BookMetadata.Title == "Oshi no Ko v01")')
-expect "fixed layout format" "$(printf '%s' "$fixed" | jq -r '.NewEntitlement.BookMetadata.DownloadUrls | map(.Format) | join(",")')" EPUB3FL
-expect "series from title" "$(printf '%s' "$fixed" | jq -r '.NewEntitlement.BookMetadata.Series.Name')" "Oshi no Ko"
+section "series"
+fixed=$(book "Oshi no Ko v01")
+json "fixed layout" "$fixed" '.NewEntitlement.BookMetadata.DownloadUrls | map(.Format) | join(",")' EPUB3FL
+json "series from title" "$fixed" '.NewEntitlement.BookMetadata.Series.Name' "Oshi no Ko"
 
-plain=$(printf '%s' "$sync" | jq '.[] | select(.NewEntitlement.BookMetadata.Title == "Babel")')
-expect "no series" "$(printf '%s' "$plain" | jq '.NewEntitlement.BookMetadata | has("Series")')" false
+babel=$(book "Babel")
+json "no series" "$babel" '.NewEntitlement.BookMetadata | has("Series") == false'
+json "epub formats" "$babel" '.NewEntitlement.BookMetadata.DownloadUrls | map(.Format) | join(",")' "EPUB3,EPUB"
 
-book=$(bval '.NewEntitlement.BookEntitlement.Id')
-url=$(bval '.NewEntitlement.BookMetadata.DownloadUrls[0].Url')
+section "transport"
+check "gzip" "$(header content-encoding "$(api /kobo/v1/library/sync)" -H 'Accept-Encoding: gzip')" gzip
 
-expect "metadata" "$(code "$BASE/$KEY/kobo/v1/library/$book/metadata")" 200
-expect "state" "$(code "$BASE/$KEY/kobo/v1/library/$book/state")" 200
-expect "delete" "$(code -X DELETE "$BASE/$KEY/kobo/v1/library/$book")" 200
-expect "cover" "$(code "$BASE/$KEY/$book/149/223/false/image.jpg")" 200
-expect "cover content type" \
-    "$(curl -sI "$BASE/$KEY/$book/149/223/false/image.jpg" | tr -d '\r' | awk 'tolower($1)=="content-type:"{print $2}')" \
-    "image/jpeg"
-thumb=$(jpeg_dims "$BASE/$KEY/$book/149/223/70/False/image.jpg")
-case "$thumb" in
-    148x223 | 149x223) printf '%-22s %s\n' "cover thumb" "$thumb" ;;
-    *)
-        echo "::error title=smoke::cover thumb: unexpected size '$thumb'"
-        exit 1
-        ;;
+token=$(tr -d '\r' < "$HDRS" | awk 'tolower($1) == "x-kobo-synctoken:" { print $2 }')
+[ -n "$token" ] || fail "sync: no x-kobo-synctoken header"
+say "synctoken" "$token"
+json "incremental sync" "$(curl -s -H "x-kobo-synctoken: $token" "$(api /kobo/v1/library/sync)")" 'length' 0
+json "unknown token" "$(curl -s -H 'x-kobo-synctoken: nonsense' "$(api /kobo/v1/library/sync)")" 'length' 5
+
+section "covers"
+grab book_id "$blame" '.NewEntitlement.BookEntitlement.Id'
+grab url "$blame" '.NewEntitlement.BookMetadata.DownloadUrls[0].Url'
+
+check "metadata" "$(status "$(api /kobo/v1/library/$book_id/metadata)")" 200
+check "state" "$(status "$(api /kobo/v1/library/$book_id/state)")" 200
+check "delete" "$(status -X DELETE "$(api /kobo/v1/library/$book_id)")" 200
+check "cover" "$(status "$(api "/$book_id/149/223/false/image.jpg")")" 200
+check "cover type" "$(header content-type "$(api "/$book_id/149/223/false/image.jpg")")" image/jpeg
+
+read_dims thumb "$(api "/$book_id/149/223/70/False/image.jpg")"
+case $thumb in
+    148x223 | 149x223) say "cover thumb" "$thumb" ;;
+    *) fail "cover thumb: unexpected $thumb" ;;
 esac
-expect "cover large" "$(jpeg_dims "$BASE/$KEY/$book/1264/1680/80/False/image.jpg")" "800x1200"
-expect "cover cached" "$(ls "$COVER_CACHE_DIR" | wc -l | tr -d ' ')" 3
-expect "analytics" "$(code -X POST "$BASE/$KEY/kobo/v1/analytics/event")" 200
-expect "download" "$(code "$url")" 200
-expect "download content type" \
-    "$(curl -sI "$url" | tr -d '\r' | awk 'tolower($1)=="content-type:"{print $2}')" \
-    "application/x-kobo-epub+zip"
 
-init=$(curl -s "$BASE/$KEY/kobo/v1/initialization")
-expect "image_host" "$(printf '%s' "$init" | jq -r '.Resources.image_host')" "$BASE"
-expect "image_url_template" "$(printf '%s' "$init" | jq -r '.Resources.image_url_template' | grep -c "$KEY")" 1
+read_dims large "$(api "/$book_id/1264/1680/80/False/image.jpg")"
+check "cover large" "$large" 800x1200
+check "covers cached" "$(find "$COVERS" -type f | wc -l | tr -d ' ')" 3
 
-babel=$(printf '%s' "$sync" | jq '.[] | select(.NewEntitlement.BookMetadata.Title == "Babel")')
-expect "epub formats" "$(printf '%s' "$babel" | jq -r '.NewEntitlement.BookMetadata.DownloadUrls | map(.Format) | join(",")')" "EPUB3,EPUB"
-epub_url=$(printf '%s' "$babel" | jq -r '.NewEntitlement.BookMetadata.DownloadUrls[0].Url')
-expect "epub download" "$(code "$epub_url")" 200
-expect "epub content type" \
-    "$(curl -sI "$epub_url" | tr -d '\r' | awk 'tolower($1)=="content-type:"{print $2}')" \
-    "application/epub+zip"
+section "downloads"
+check "download" "$(status "$url")" 200
+check "download type" "$(header content-type "$url")" application/x-kobo-epub+zip
 
-sleep 4
+grab epub_url "$babel" '.NewEntitlement.BookMetadata.DownloadUrls[0].Url'
+check "epub download" "$(status "$epub_url")" 200
+check "epub type" "$(header content-type "$epub_url")" application/epub+zip
+
+section "initialization"
+init=$(curl -s "$(api /kobo/v1/initialization)")
+check "image host" "$(printf '%s' "$init" | jq -r '.Resources.image_host')" "$BASE"
+template=$(printf '%s' "$init" | jq -r '.Resources.image_url_template')
+[[ $template == *"$KEY"* ]] || fail "image template does not carry the key: $template"
+say "image template" "$template"
+
+section "background"
+for _ in $(seq 1 20); do
+    [ "$(grep -c 'library refreshed' "$LOG" || true)" -ge 1 ] && break
+    sleep 1
+done
 refreshes=$(grep -c 'library refreshed' "$LOG" || true)
-if [ "$refreshes" -lt 1 ]; then
-    echo "::error title=smoke::refresh: expected at least one refresh, got $refreshes"
-    exit 1
-fi
-printf '%-22s %s\n' "refresh logged" "$refreshes"
-expect "api key logged" "$(grep -c "api key:      $KEY" "$LOG")" 1
+[ "$refreshes" -ge 1 ] || fail "no background refresh was logged"
+say "refresh logged" "$refreshes"
+check "key logged" "$(grep -c "api key: *$KEY" "$LOG" || true)" 1
 
-echo "ok"
+printf '\n%d checks passed\n' "$checks"

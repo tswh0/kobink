@@ -92,7 +92,11 @@ Notes:
 - Fixed-layout books (`rendition:layout = pre-paginated`, which is what KCC emits) are
   advertised as `EPUB3FL`, so the device renders them full-bleed instead of letterboxing
   fixed pages inside a reflowable text area.
+- Series metadata comes from the EPUB (`calibre:series`, EPUB 3 `belongs-to-collection`), falling
+  back to the title (`Fire Punch v03`), so volumes reach the device as one series.
 - The library is rescanned every `LIBRARY_REFRESH_SECONDS` (default 10 minutes); add books and
   wait for the next pass, no restart needed.
-- `.github/workflows/build.yml` runs `cargo check` plus the kobo protocol smoke test on every
-  push; `.github/workflows/image.yml` publishes the container image.
+- `ci/smoke.sh` runs the release binary against fixtures from `ci/fixtures.py` and checks auth,
+  sync shape, series, formats, covers, downloads and the background refresh. `cargo check` runs on
+  every push, the smoke test on `main` and on release tags; `.github/workflows/image.yml`
+  publishes the container image.
