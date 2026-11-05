@@ -79,8 +79,14 @@ PNG = solid_png(800, 1200, (40, 40, 40))
 root = sys.argv[1]
 
 
-def make_epub(path, title, author, layout="reflowable"):
+def make_epub(path, title, author, layout="reflowable", series=None, number=None):
     os.makedirs(os.path.dirname(path), exist_ok=True)
+    series_meta = ""
+    if series is not None:
+        series_meta = (
+            f'<meta name="calibre:series" content="{series}"/>\n'
+            f'    <meta name="calibre:series_index" content="{number}"/>'
+        )
     opf = f"""<?xml version="1.0" encoding="utf-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id">
   <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
@@ -90,6 +96,7 @@ def make_epub(path, title, author, layout="reflowable"):
     <dc:language>en</dc:language>
     <meta property="dcterms:modified">2026-01-01T00:00:00Z</meta>
     <meta property="rendition:layout">{layout}</meta>
+    {series_meta}
     <meta name="cover" content="cover-img"/>
   </metadata>
   <manifest>
@@ -117,6 +124,8 @@ for volume in (1, 2, 3):
         f"{root}/BLAME!/BLAME! Master Edition v0{volume}.kepub.epub",
         f"BLAME! Master Edition v0{volume}",
         "Tsutomu Nihei",
+        series="BLAME! Master Edition",
+        number=volume,
     )
 
 make_epub(
@@ -169,7 +178,10 @@ bval() { printf '%s' "$blame" | jq -r "$1"; }
 expect "books synced" "$(field 'length')" 5
 expect "distinct ids" "$(field '[.[].NewEntitlement.BookEntitlement.Id] | unique | length')" 5
 expect "kobo timestamp" "$(bval '.NewEntitlement.BookEntitlement.Created' | sed -E 's/[0-9]/N/g')" "NNNN-NN-NNTNN:NN:NNZ"
-expect "series omitted" "$(bval '.NewEntitlement.BookMetadata | has("Series")')" false
+expect "series name" "$(bval '.NewEntitlement.BookMetadata.Series.Name')" "BLAME! Master Edition"
+expect "series number" "$(bval '.NewEntitlement.BookMetadata.Series.Number')" 1
+expect "series number float" "$(bval '.NewEntitlement.BookMetadata.Series.NumberFloat')" 1
+expect "series id" "$(bval '.NewEntitlement.BookMetadata.Series.Id | test("^[0-9a-f-]{36}$")')" true
 expect "synctoken header" "$(grep -ci '^x-kobo-synctoken: ' sync-headers.txt)" 1
 expect "gzip encoding" "$(curl -s -o /dev/null -D - -H 'Accept-Encoding: gzip' "$BASE/$KEY/kobo/v1/library/sync" | tr -d '\r' | awk 'tolower($1)=="content-encoding:"{print $2}')" gzip
 token=$(tr -d '\r' < sync-headers.txt | awk 'tolower($1)=="x-kobo-synctoken:"{print $2}')
@@ -178,6 +190,10 @@ expect "kepub format" "$(bval '.NewEntitlement.BookMetadata.DownloadUrls | map(.
 
 fixed=$(printf '%s' "$sync" | jq '.[] | select(.NewEntitlement.BookMetadata.Title == "Oshi no Ko v01")')
 expect "fixed layout format" "$(printf '%s' "$fixed" | jq -r '.NewEntitlement.BookMetadata.DownloadUrls | map(.Format) | join(",")')" EPUB3FL
+expect "series from title" "$(printf '%s' "$fixed" | jq -r '.NewEntitlement.BookMetadata.Series.Name')" "Oshi no Ko"
+
+plain=$(printf '%s' "$sync" | jq '.[] | select(.NewEntitlement.BookMetadata.Title == "Babel")')
+expect "no series" "$(printf '%s' "$plain" | jq '.NewEntitlement.BookMetadata | has("Series")')" false
 
 book=$(bval '.NewEntitlement.BookEntitlement.Id')
 url=$(bval '.NewEntitlement.BookMetadata.DownloadUrls[0].Url')

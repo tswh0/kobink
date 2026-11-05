@@ -1,8 +1,8 @@
-use crate::library::models::Book;
+use crate::library::models::{book_id, Book};
 
 use super::models::{
     ActivePeriod, BookEntitlement, BookMetadata, ContributorRole, CurrentDisplayPrice,
-    CurrentLoveDisplayPrice, Entitlement, PhoneticPronunciations, Publisher, SyncEvent,
+    CurrentLoveDisplayPrice, Entitlement, PhoneticPronunciations, Publisher, Series, SyncEvent,
 };
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
@@ -33,6 +33,16 @@ impl Entitlement {
                 Name: author.clone(),
             })
             .collect();
+
+        if let Some(series) = &book.series {
+            new.BookMetadata.Series = Some(Series {
+                Name: series.name.clone(),
+                Number: series.number.round() as u64,
+                NumberFloat: series.number,
+                Id: book_id(&format!("series|{}", series.name)),
+            });
+        }
+
         new
     }
 

@@ -14,6 +14,27 @@ use crate::{
 };
 
 #[derive(Debug, Clone)]
+pub struct BookSeries {
+    pub name: String,
+    pub number: f64,
+}
+
+impl BookSeries {
+    pub fn new(name: &str, number: f64) -> Option<Self> {
+        let name = name.trim();
+
+        if name.is_empty() {
+            return None;
+        }
+
+        Some(Self {
+            name: name.to_string(),
+            number,
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct Book {
     pub id: Uuid,
     pub title: String,
@@ -24,6 +45,7 @@ pub struct Book {
     pub modified: Option<SystemTime>,
     pub fixed_layout: bool,
     pub is_kepub: bool,
+    pub series: Option<BookSeries>,
 }
 
 impl Book {
@@ -197,6 +219,7 @@ pub fn scan(library_path: &str, previous: &[Book]) -> Vec<Book> {
 
         let filename = entry.file_name().to_string_lossy().to_string();
         let id = book_id(&format!("{title}|{author}|{filename}"));
+        let series = series_of(&epub).or_else(|| series_from_title(&title));
 
         books.push(Book {
             id,
@@ -208,6 +231,7 @@ pub fn scan(library_path: &str, previous: &[Book]) -> Vec<Book> {
             modified,
             fixed_layout,
             is_kepub: filename.ends_with(".kepub.epub"),
+            series,
         });
     }
 
@@ -219,4 +243,78 @@ pub fn scan(library_path: &str, previous: &[Book]) -> Vec<Book> {
     );
 
     books
+}
+
+fn series_of<R: std::io::Read + std::io::Seek>(epub: &EpubDoc<R>) -> Option<BookSeries> {
+    if let Some(item) = epub.mdata("calibre:series") {
+        let number = epub
+            .mdata("calibre:series_index")
+            .and_then(|index| index.value.trim().parse::<f64>().ok())
+            .unwrap_or(1.0);
+
+        if let Some(series) = BookSeries::new(&item.value, number) {
+            return Some(series);
+        }
+    }
+
+    for item in &epub.metadata {
+        if item.property != "belongs-to-collection" {
+            continue;
+        }
+
+        let kind = item.refinement("collection-type").map(|kind| kind.value.trim());
+        if kind.is_some_and(|kind| kind != "series") {
+            continue;
+        }
+
+        let number = item
+            .refinement("group-position")
+            .and_then(|position| position.value.trim().parse::<f64>().ok())
+            .unwrap_or(1.0);
+
+        if let Some(series) = BookSeries::new(&item.value, number) {
+            return Some(series);
+        }
+    }
+
+    None
+}
+
+fn series_from_title(title: &str) -> Option<BookSeries> {
+    let trimmed = title.trim();
+    let lower = trimmed.to_lowercase();
+
+    for marker in ["volume", "vol.", "vol", "v"] {
+        let Some(index) = lower.rfind(marker) else {
+            continue;
+        };
+
+        if !trimmed.is_char_boundary(index) {
+            continue;
+        }
+
+        let (head, tail) = trimmed.split_at(index);
+        if !matches!(head.chars().last(), Some(' ') | Some('-') | Some('_')) {
+            continue;
+        }
+
+        let rest = tail[marker.len()..]
+            .trim_start()
+            .trim_start_matches(['.', ',', ' ', '-', '_']);
+        let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+
+        if digits.is_empty() || digits.len() > 3 {
+            continue;
+        }
+
+        let name = head.trim_end_matches([' ', '-', '_']);
+        if name.is_empty() {
+            continue;
+        }
+
+        let number = digits.parse::<f64>().ok()?;
+        return BookSeries::new(name, number);
+    }
+
+    None
 }
