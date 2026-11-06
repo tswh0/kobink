@@ -31,6 +31,11 @@ struct Status {
     status: Option<String>,
 }
 
+enum Kind {
+    Book,
+    Manga,
+}
+
 pub fn create_drop_router(prefix: &str) -> Router<Arc<Mutex<LibraryState>>> {
     Router::new()
         .route(&format!("{prefix}/drop"), get(page))
@@ -65,88 +70,83 @@ async fn upload(
         library.path.clone()
     };
 
-    let mut file: Option<(String, Bytes)> = None;
-    let mut manga = false;
+    let mut files: Vec<(String, Bytes)> = Vec::new();
     let mut profile = kcc::DEFAULT_PROFILE.to_string();
+    let mut interrupted = false;
 
     while let Ok(Some(field)) = multipart.next_field().await {
         let name = field.name().unwrap_or_default().to_string();
 
         match name.as_str() {
-            "mode" => manga = matches!(field.text().await.as_deref(), Ok("manga")),
             "profile" => profile = field.text().await.unwrap_or_default(),
             "file" => {
                 let file_name = field.file_name().unwrap_or_default().to_string();
-                let data = match field.bytes().await {
-                    Ok(data) => data,
+
+                match field.bytes().await {
+                    Ok(data) if !data.is_empty() => files.push((file_name, data)),
+                    Ok(_) => {}
                     Err(error) => {
-                        warn!("upload interrupted while reading: {error}");
-                        return redirect("read");
+                        warn!("upload interrupted while reading {file_name}: {error}");
+                        interrupted = true;
                     }
-                };
-                file = Some((file_name, data));
+                }
             }
             _ => {}
         }
     }
 
-    let Some((raw_name, data)) = file else {
-        return redirect("empty");
-    };
-
-    if data.is_empty() {
-        return redirect("empty");
+    if interrupted {
+        return redirect(&["read"]);
     }
 
-    if manga {
-        return convert_upload(library, &library_path, raw_name, data, profile).await;
+    if files.is_empty() {
+        return redirect(&["empty"]);
     }
 
-    drop_book(library, &library_path, raw_name, data).await
-}
+    let mut codes = Vec::with_capacity(files.len());
 
-async fn drop_book(
-    library: Arc<Mutex<LibraryState>>,
-    library_path: &str,
-    raw_name: String,
-    data: Bytes,
-) -> Response {
-    let Some(name) = file_name(&raw_name, ".epub") else {
-        return redirect("book");
-    };
-
-    let target = unique(library_path, &name);
-
-    if let Err(error) = tokio::fs::write(&target, &data).await {
-        return write_failure(&target, &error);
+    for (raw_name, data) in files {
+        codes.push(store(&library_path, raw_name, data, &profile).await);
     }
 
-    info!("dropped {} ({} bytes)", target.display(), data.len());
     refresh(library).await;
-
-    redirect("ok")
+    redirect(&codes)
 }
 
-async fn convert_upload(
-    library: Arc<Mutex<LibraryState>>,
-    library_path: &str,
-    raw_name: String,
-    data: Bytes,
-    profile: String,
-) -> Response {
-    if !kcc::available() {
-        return redirect("kcc_missing");
-    }
-
-    let Some(name) = file_name(&raw_name, ".cbz") else {
-        return redirect("manga");
+async fn store(library_path: &str, raw_name: String, data: Bytes, profile: &str) -> &'static str {
+    let Some(name) = safe_name(&raw_name) else {
+        return "format";
     };
 
-    if kcc::profile(&profile).is_none() {
-        return redirect("profile");
-    }
+    match classify(&name) {
+        Some(Kind::Book) => {
+            let target = unique(library_path, &name);
 
-    let suffix = kcc::extension(&profile);
+            match tokio::fs::write(&target, &data).await {
+                Ok(()) => {
+                    info!("dropped {} ({} bytes)", target.display(), data.len());
+                    "ok"
+                }
+                Err(error) => write_failure(&target, &error),
+            }
+        }
+        Some(Kind::Manga) => {
+            if !kcc::available() {
+                return "kcc_missing";
+            }
+
+            if kcc::profile(profile).is_none() {
+                return "profile";
+            }
+
+            convert(library_path, name, data, profile).await
+        }
+        None => "format",
+    }
+}
+
+async fn convert(library_path: &str, name: String, data: Bytes, profile: &str) -> &'static str {
+    let suffix = kcc::extension(profile);
     let work = work_dir();
     let input = work.join(&name);
     let title = clean_title(&stem(&name));
@@ -154,12 +154,14 @@ async fn convert_upload(
 
     if let Err(error) = tokio::fs::create_dir_all(&work).await {
         warn!("cannot create {}: {error}", work.display());
-        return redirect("write");
+        return "write";
     }
 
     if let Err(error) = tokio::fs::write(&input, &data).await {
+        let _ = tokio::fs::remove_dir_all(&work).await;
         warn!("cannot write {}: {error}", input.display());
-        return write_failure(&input, &error);
+
+        return "write";
     }
 
     let author = kcc::author(&series(&title), &input).await;
@@ -168,52 +170,51 @@ async fn convert_upload(
         info!("{name}: author {author}");
     }
 
-    let converted = kcc::convert(&input, &output, &profile, &title, author.as_deref()).await;
+    let converted = kcc::convert(&input, &output, profile, &title, author.as_deref()).await;
     let _ = tokio::fs::remove_file(&input).await;
 
     if let Err(error) = converted {
         warn!("{name}: {error}");
         let _ = tokio::fs::remove_dir_all(&work).await;
 
-        return redirect(if error.contains("timed out") {
+        return if error.contains("timed out") {
             "timeout"
         } else {
             "kcc_failed"
-        });
+        };
     }
 
     let target = unique(library_path, &format!("{title}{suffix}"));
-
-    if let Err(error) = tokio::fs::copy(&output, &target).await {
-        let _ = tokio::fs::remove_dir_all(&work).await;
-        return write_failure(&target, &error);
-    }
+    let copied = tokio::fs::copy(&output, &target).await;
 
     let _ = tokio::fs::remove_dir_all(&work).await;
 
-    info!(
-        "converted {} -> {} ({} bytes in, profile {profile})",
-        name,
-        target.display(),
-        data.len()
-    );
+    match copied {
+        Ok(bytes) => {
+            info!(
+                "converted {} -> {} ({bytes} bytes, profile {profile})",
+                name,
+                target.display()
+            );
 
-    refresh(library).await;
-    redirect("converted")
+            "converted"
+        }
+        Err(error) => write_failure(&target, &error),
+    }
 }
 
-fn write_failure(target: &Path, error: &std::io::Error) -> Response {
+fn write_failure(target: &Path, error: &std::io::Error) -> &'static str {
     warn!("cannot write {}: {error}", target.display());
 
-    redirect(if error.kind() == std::io::ErrorKind::ReadOnlyFilesystem {
+    if error.kind() == std::io::ErrorKind::ReadOnlyFilesystem {
         "readonly"
     } else {
         "write"
-    })
+    }
 }
 
-fn redirect(status: &str) -> Response {
-    Redirect::to(&format!("/{}/drop?status={status}", api_key())).into_response()
+fn redirect(codes: &[&str]) -> Response {
+    Redirect::to(&format!("/{}/drop?status={}", api_key(), codes.join(","))).into_response()
 }
 
 fn work_dir() -> PathBuf {
@@ -225,18 +226,24 @@ fn work_dir() -> PathBuf {
     std::env::temp_dir().join(format!("kobink-{}-{stamp}", std::process::id()))
 }
 
-fn file_name(name: &str, extension: &str) -> Option<String> {
+fn safe_name(name: &str) -> Option<String> {
     if name.contains('/') || name.contains('\\') || name.starts_with('.') {
         return None;
     }
 
-    let name = Path::new(name).file_name()?.to_string_lossy().to_string();
+    Some(Path::new(name).file_name()?.to_string_lossy().to_string())
+}
 
-    if !name.to_lowercase().ends_with(extension) {
-        return None;
+fn classify(name: &str) -> Option<Kind> {
+    let name = name.to_lowercase();
+
+    if name.ends_with(".epub") {
+        Some(Kind::Book)
+    } else if name.ends_with(".cbz") || name.ends_with(".pdf") {
+        Some(Kind::Manga)
+    } else {
+        None
     }
-
-    Some(name)
 }
 
 fn stem(name: &str) -> String {
@@ -287,7 +294,10 @@ fn series(title: &str) -> String {
             .is_some_and(|next| next.chars().all(|c| c.is_ascii_digit()));
 
         let is_marker = match number {
-            Some(rest) => (!rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit())) || (rest.is_empty() && next_is_number),
+            Some(rest) => {
+                (!rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit()))
+                    || (rest.is_empty() && next_is_number)
+            }
             None => false,
         };
 
@@ -330,7 +340,8 @@ fn unique(library_path: &str, name: &str) -> PathBuf {
 
 fn controls() -> String {
     if !kcc::available() {
-        return "<p class=\"hint\">Manga conversion needs an image built with KCC.</p>".to_string();
+        return "<p class=\"hint\">CBZ and PDF need an image built with KCC. EPUB works either way.</p>"
+            .to_string();
     }
 
     let mut groups: Vec<(&str, String)> = Vec::new();
@@ -350,12 +361,7 @@ fn controls() -> String {
     }
 
     let mut html = String::from(
-        "<div class=\"field\"><span>What is it?</span>\
-         <select name=\"mode\">\
-         <option value=\"book\">A book, add it as it is</option>\
-         <option value=\"manga\">Manga, convert the CBZ</option>\
-         </select></div>\
-         <div class=\"field\"><span>E-reader</span><select name=\"profile\">",
+        "<div class=\"field\"><span>E-reader for CBZ and PDF</span><select name=\"profile\">",
     );
 
     for (group, options) in groups {
@@ -366,32 +372,44 @@ fn controls() -> String {
     html
 }
 
+fn message(code: &str) -> Option<(&'static str, &'static str)> {
+    match code {
+        "ok" => Some(("ok", "Book added. It appears on the reader after the next sync.")),
+        "converted" => Some((
+            "ok",
+            "Converted and added. It appears on the reader after the next sync.",
+        )),
+        "format" => Some(("error", "Only .epub, .cbz and .pdf, please.")),
+        "profile" => Some(("error", "Unknown e-reader.")),
+        "empty" => Some(("error", "No file was attached.")),
+        "read" => Some(("error", "The upload was interrupted.")),
+        "write" => Some(("error", "A file could not be saved.")),
+        "kcc_missing" => Some((
+            "error",
+            "This image has no KCC, so CBZ and PDF cannot be converted. EPUB still works.",
+        )),
+        "kcc_failed" => Some((
+            "error",
+            "KCC could not convert a file. The container log has the reason.",
+        )),
+        "timeout" => Some(("error", "A conversion took too long and was stopped.")),
+        "readonly" => Some((
+            "error",
+            "The library folder is mounted read-only. Mount it read-write to accept uploads.",
+        )),
+        _ => None,
+    }
+}
+
 fn render(status: Option<&str>) -> String {
-    let notice = match status {
-        Some("ok") => "<p class=\"notice ok\">Book added. It appears on the reader after the next sync.</p>",
-        Some("converted") => {
-            "<p class=\"notice ok\">Converted and added. It appears on the reader after the next sync.</p>"
-        }
-        Some("book") => "<p class=\"notice error\">Only .epub files, please.</p>",
-        Some("manga") => "<p class=\"notice error\">Manga conversion takes a .cbz file.</p>",
-        Some("profile") => "<p class=\"notice error\">Unknown e-reader.</p>",
-        Some("empty") => "<p class=\"notice error\">No file was attached.</p>",
-        Some("read") => "<p class=\"notice error\">The upload was interrupted.</p>",
-        Some("write") => "<p class=\"notice error\">The file could not be saved.</p>",
-        Some("kcc_missing") => {
-            "<p class=\"notice error\">This image has no KCC, so manga cannot be converted.</p>"
-        }
-        Some("kcc_failed") => {
-            "<p class=\"notice error\">KCC could not convert that file. The container log has the reason.</p>"
-        }
-        Some("timeout") => "<p class=\"notice error\">Conversion took too long and was stopped.</p>",
-        Some("readonly") => {
-            "<p class=\"notice error\">The library folder is mounted read-only. Mount it read-write to accept uploads.</p>"
-        }
-        _ => "",
-    };
+    let notices = status
+        .unwrap_or_default()
+        .split(',')
+        .filter_map(|code| message(code.trim()))
+        .map(|(tone, text)| format!("<p class=\"notice {tone}\">{text}</p>"))
+        .collect::<String>();
 
     PAGE.replace("{{BASE}}", &format!("/{}", api_key()))
         .replace("{{CONTROLS}}", &controls())
-        .replace("{{NOTICE}}", notice)
+        .replace("{{NOTICE}}", &notices)
 }

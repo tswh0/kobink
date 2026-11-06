@@ -85,6 +85,9 @@ if sys.argv[1] == "--manga":
     out = sys.argv[2]
     make_cbz(f"{out}/cbz/Fire Punch v03.cbz")
     make_cbz(f"{out}/cbz/fail.cbz")
+
+    with open(f"{out}/cbz/Fire Punch v04.pdf", "wb") as pdf:
+        pdf.write(b"%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\n%%EOF\n")
     make_epub(
         f"{out}/stub/Fire Punch v03.epub",
         "Fire Punch v03",

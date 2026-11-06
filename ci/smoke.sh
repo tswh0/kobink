@@ -239,6 +239,7 @@ section "drop"
 check "drop page" "$(status "$(api /drop)")" 200
 check "drop without key" "$(status "$BASE/drop")" 404
 check "drop stylesheet" "$(status "$(api /drop/style.css)")" 200
+check "multiple files" "$(curl -s "$(api /drop)" | grep -c 'name="file" accept="[^"]*" multiple')" 1
 
 cp "$LIB/BLAME!/BLAME! Master Edition v01.kepub.epub" "$WORK/drop-test.kepub.epub"
 body=$(curl -s -L -F "file=@$WORK/drop-test.kepub.epub" "$(api /drop/upload)")
@@ -246,14 +247,27 @@ body=$(curl -s -L -F "file=@$WORK/drop-test.kepub.epub" "$(api /drop/upload)")
 json "books after drop" "$(curl -s "$(api /kobo/v1/library/sync)")" 'length' 6
 
 body=$(curl -s -L -F "file=@$WORK/drop-test.kepub.epub;filename=../evil.epub" "$(api /drop/upload)")
-[[ $body == *"Only .epub files"* ]] || fail "a path in the upload name was accepted"
+[[ $body == *"Only .epub, .cbz and .pdf"* ]] || fail "a path in the upload name was accepted"
+
+printf 'not a book' > "$WORK/notes.txt"
+body=$(curl -s -L -F "file=@$WORK/notes.txt" "$(api /drop/upload)")
+[[ $body == *"Only .epub, .cbz and .pdf"* ]] || fail "a txt file was accepted"
 
 rm -f "$LIB/drop-test.kepub.epub"
 
-section "manga"
-check "mode and profile" "$(curl -s "$(api /drop)" | grep -c 'name="profile"')" 1
+section "batch"
+cp "$LIB/R.F. Kuang/Babel - Rebecca F. Kuang (2022).epub" "$WORK/one.epub"
+cp "$LIB/R.F. Kuang/Babel - Rebecca F. Kuang (2022).epub" "$WORK/two.epub"
+body=$(curl -s -L -F "file=@$WORK/one.epub" -F "file=@$WORK/two.epub" "$(api /drop/upload)")
+[ "$(grep -c "Book added" <<< "$body")" = "2" ] || fail "two files in one request did not both confirm"
+[ -f "$LIB/one.epub" ] && [ -f "$LIB/two.epub" ] || fail "a file from the batch is missing"
+json "books after batch" "$(curl -s "$(api /kobo/v1/library/sync)")" 'length' 7
+rm -f "$LIB/one.epub" "$LIB/two.epub"
 
-body=$(curl -s -L -F "file=@$WORK/manga/cbz/Fire Punch v03.cbz" -F mode=manga -F profile=KoL "$(api /drop/upload)")
+section "manga"
+check "profile picker" "$(curl -s "$(api /drop)" | grep -c 'name="profile"')" 1
+
+body=$(curl -s -L -F "file=@$WORK/manga/cbz/Fire Punch v03.cbz" -F profile=KoL "$(api /drop/upload)")
 [[ $body == *"Converted and added"* ]] || fail "convert: no confirmation on the page"
 [ -f "$LIB/Fire Punch v03.kepub.epub" ] || fail "convert: no kepub in the library"
 
@@ -261,25 +275,25 @@ sync=$(curl -s "$(api /kobo/v1/library/sync)")
 json "books after convert" "$sync" 'length' 6
 json "converted format" "$(book "Fire Punch v03")" '.NewEntitlement.BookMetadata.DownloadUrls | map(.Format) | join(",")' KEPUB
 json "converted series" "$(book "Fire Punch v03")" '.NewEntitlement.BookMetadata.Series.Name' "Fire Punch"
+rm -f "$LIB/Fire Punch v03.kepub.epub"
 
-body=$(curl -s -L -F "file=@$WORK/manga/cbz/Fire Punch v03.cbz" -F mode=manga -F profile=KPW5 "$(api /drop/upload)")
+body=$(curl -s -L -F "file=@$WORK/manga/cbz/Fire Punch v04.pdf" -F profile=KoL "$(api /drop/upload)")
+[[ $body == *"Converted and added"* ]] || fail "pdf: no confirmation on the page"
+[ -f "$LIB/Fire Punch v04.kepub.epub" ] || fail "pdf: no kepub in the library"
+rm -f "$LIB/Fire Punch v04.kepub.epub"
+
+body=$(curl -s -L -F "file=@$WORK/manga/cbz/Fire Punch v03.cbz" -F profile=KPW5 "$(api /drop/upload)")
 [[ $body == *"Converted and added"* ]] || fail "kindle profile: no confirmation"
 [ -f "$LIB/Fire Punch v03.epub" ] || fail "kindle profile did not write a plain .epub"
 
-body=$(curl -s -L -F "file=@$WORK/manga/cbz/Fire Punch v03.cbz" -F mode=manga -F profile=XX "$(api /drop/upload)")
+body=$(curl -s -L -F "file=@$WORK/manga/cbz/Fire Punch v03.cbz" -F profile=XX "$(api /drop/upload)")
 [[ $body == *"Unknown e-reader"* ]] || fail "an unknown profile was accepted"
 
-body=$(curl -s -L -F "file=@$LIB/R.F. Kuang/Babel - Rebecca F. Kuang (2022).epub" -F mode=manga "$(api /drop/upload)")
-[[ $body == *"takes a .cbz file"* ]] || fail "an epub went through the manga path"
-
-body=$(curl -s -L -F "file=@$WORK/manga/cbz/Fire Punch v03.cbz" -F mode=book "$(api /drop/upload)")
-[[ $body == *"Only .epub files"* ]] || fail "a cbz went through the book path"
-
-body=$(curl -s -L -F "file=@$WORK/manga/cbz/fail.cbz" -F mode=manga -F profile=KoL "$(api /drop/upload)")
+body=$(curl -s -L -F "file=@$WORK/manga/cbz/fail.cbz" -F profile=KoL "$(api /drop/upload)")
 [[ $body == *"KCC could not convert"* ]] || fail "a failing kcc was reported as a success"
 
-rm -f "$LIB/Fire Punch v03.kepub.epub" "$LIB/Fire Punch v03.epub"
-say "manga" "6 checks"
+rm -f "$LIB/Fire Punch v03.epub"
+say "manga" "9 checks"
 
 section "manga off"
 port=$(printf '%s' "$BASE" | sed -nE 's|^https?://[^:/]+:([0-9]+).*|\1|p')
@@ -295,6 +309,9 @@ done
 body=$(curl -s "http://127.0.0.1:$off_port/$KEY/drop")
 [[ $body == *"built with KCC"* ]] || fail "the page did not say that KCC is missing"
 [[ $body == *'name="profile"' ]] && fail "the profile picker appeared without KCC"
+
+body=$(curl -s -L -F "file=@$WORK/manga/cbz/Fire Punch v03.cbz" "http://127.0.0.1:$off_port/$KEY/drop/upload")
+[[ $body == *"no KCC"* ]] || fail "a cbz was accepted without kcc"
 kill "$off" 2>/dev/null || true
 say "page without kcc" "hint only"
 
