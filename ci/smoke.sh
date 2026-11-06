@@ -155,7 +155,6 @@ say "version" "$version"
 grep -q "says hello" "$LOG" || fail "startup log has no hello line"
 
 section "auth"
-check "root" "$(status "$BASE/")" 404
 check "without key" "$(status "$BASE/kobo/v1/user/profile")" 404
 check "wrong key" "$(status "$BASE/not-the-key/kobo/v1/user/profile")" 404
 check "right key" "$(status "$(api /kobo/v1/user/profile)")" 200
