@@ -71,7 +71,7 @@ header() {
     local name=$1 url=$2
     shift 2
     curl -s -o /dev/null -D - "$@" "$url" | tr -d '\r' |
-        awk -v key="$name" 'tolower($1) == (key ":") { print $2 }'
+        awk -v key="$name" 'tolower($1) == (key ":") { $1 = ""; sub(/^[ \t]+/, ""); print; exit }'
 }
 
 dims() {
