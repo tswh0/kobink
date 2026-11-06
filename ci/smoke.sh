@@ -213,9 +213,9 @@ template=$(printf '%s' "$init" | jq -r '.Resources.image_url_template')
 say "image template" "$template"
 
 section "dashboard"
-check "dashboard" "$(code "$(api /admin)")" 200
+check "dashboard" "$(status "$(api /admin)")" 200
 check "dashboard type" "$(header content-type "$(api /admin)")" "text/html; charset=utf-8"
-check "stylesheet" "$(code "$(api /admin/style.css)")" 200
+check "stylesheet" "$(status "$(api /admin/style.css)")" 200
 check "dashboard without key" "$(status "$BASE/admin")" 404
 
 html=$(curl -s "$(api /admin)")
