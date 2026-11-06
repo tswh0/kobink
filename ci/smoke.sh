@@ -106,6 +106,29 @@ read_dims() {
 
 section "fixtures"
 python3 "$DIR/fixtures.py" "$LIB"
+python3 "$DIR/fixtures.py" --manga "$WORK/manga"
+
+cat > "$WORK/kcc-c2e" <<'STUB'
+#!/bin/sh
+out=""
+input=""
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --version) echo "KCC 12.1.3 (stub)"; exit 0 ;;
+        -o) out=$2; shift ;;
+        --) shift; input=$1; shift; break ;;
+    esac
+    shift
+done
+case "$input" in
+    *fail*) echo "stub refuses $input" >&2; exit 1 ;;
+esac
+[ -n "$out" ] || { echo "stub: no -o" >&2; exit 2; }
+cp "$STUB_EPUB" "$out"
+STUB
+chmod +x "$WORK/kcc-c2e"
+export KCC_BIN="$WORK/kcc-c2e"
+export STUB_EPUB="$WORK/manga/stub/Fire Punch v03.epub"
 
 section "startup"
 "$BIN" >"$LOG" 2>&1 &
@@ -226,6 +249,54 @@ body=$(curl -s -L -F "file=@$WORK/drop-test.kepub.epub;filename=../evil.epub" "$
 [[ $body == *"Only .epub files"* ]] || fail "a path in the upload name was accepted"
 
 rm -f "$LIB/drop-test.kepub.epub"
+
+section "manga"
+check "mode and profile" "$(curl -s "$(api /drop)" | grep -c 'name="profile"')" 1
+
+body=$(curl -s -L -F "file=@$WORK/manga/cbz/Fire Punch v03.cbz" -F mode=manga -F profile=KoL "$(api /drop/upload)")
+[[ $body == *"Converted and added"* ]] || fail "convert: no confirmation on the page"
+[ -f "$LIB/Fire Punch v03.kepub.epub" ] || fail "convert: no kepub in the library"
+
+sync=$(curl -s "$(api /kobo/v1/library/sync)")
+json "books after convert" "$sync" 'length' 6
+json "converted format" "$(book "Fire Punch v03")" '.NewEntitlement.BookMetadata.DownloadUrls | map(.Format) | join(",")' KEPUB
+json "converted series" "$(book "Fire Punch v03")" '.NewEntitlement.BookMetadata.Series.Name' "Fire Punch"
+
+body=$(curl -s -L -F "file=@$WORK/manga/cbz/Fire Punch v03.cbz" -F mode=manga -F profile=KPW5 "$(api /drop/upload)")
+[[ $body == *"Converted and added"* ]] || fail "kindle profile: no confirmation"
+[ -f "$LIB/Fire Punch v03.epub" ] || fail "kindle profile did not write a plain .epub"
+
+body=$(curl -s -L -F "file=@$WORK/manga/cbz/Fire Punch v03.cbz" -F mode=manga -F profile=XX "$(api /drop/upload)")
+[[ $body == *"Unknown e-reader"* ]] || fail "an unknown profile was accepted"
+
+body=$(curl -s -L -F "file=@$LIB/R.F. Kuang/Babel - Rebecca F. Kuang (2022).epub" -F mode=manga "$(api /drop/upload)")
+[[ $body == *"takes a .cbz file"* ]] || fail "an epub went through the manga path"
+
+body=$(curl -s -L -F "file=@$WORK/manga/cbz/Fire Punch v03.cbz" -F mode=book "$(api /drop/upload)")
+[[ $body == *"Only .epub files"* ]] || fail "a cbz went through the book path"
+
+body=$(curl -s -L -F "file=@$WORK/manga/cbz/fail.cbz" -F mode=manga -F profile=KoL "$(api /drop/upload)")
+[[ $body == *"KCC could not convert"* ]] || fail "a failing kcc was reported as a success"
+
+rm -f "$LIB/Fire Punch v03.kepub.epub" "$LIB/Fire Punch v03.epub"
+say "manga" "6 checks"
+
+section "manga off"
+port=$(printf '%s' "$BASE" | sed -nE 's|^https?://[^:/]+:([0-9]+).*|\1|p')
+off_port=$(( ${port:-3000} + 1 ))
+KCC_BIN=/nonexistent KOBINK_PORT=$off_port PUBLIC_URL="http://127.0.0.1:$off_port" "$BIN" >"$WORK/off.log" 2>&1 &
+off=$!
+
+for _ in $(seq 1 20); do
+    [ "$(status "http://127.0.0.1:$off_port/")" != "000" ] && break
+    sleep 1
+done
+
+body=$(curl -s "http://127.0.0.1:$off_port/$KEY/drop")
+[[ $body == *"built with KCC"* ]] || fail "the page did not say that KCC is missing"
+[[ $body == *'name="profile"' ]] && fail "the profile picker appeared without KCC"
+kill "$off" 2>/dev/null || true
+say "page without kcc" "hint only"
 
 section "background"
 for _ in $(seq 1 20); do

@@ -37,8 +37,22 @@
   form {
     margin-top: 1.25rem;
   }
-  input[type="file"] {
+  .field {
+    display: grid;
+    gap: .35rem;
+  }
+  .field > span {
+    font-size: var(--text-7);
+    color: var(--muted-foreground);
+  }
+  .field select,
+  .field input[type="file"] {
     width: 100%;
+  }
+  .hint {
+    margin: 1.1rem 0 0;
+    font-size: var(--text-7);
+    color: var(--muted-foreground);
   }
   button {
     width: 100%;
@@ -72,14 +86,18 @@
 <article class="card">
   <header>
     <h1>Drop a book</h1>
-    <p>EPUB or KEPUB. It lands in the library folder and shows up on the reader after the next sync.</p>
+    <p>An EPUB lands in the library as it is. A manga CBZ is converted to a KEPUB for your e-reader first. Either way it shows up after the next sync.</p>
   </header>
 
   {{NOTICE}}
 
   <form method="post" action="{{BASE}}/drop/upload" enctype="multipart/form-data">
     <div class="vstack gap-4">
-      <input type="file" name="file" accept=".epub" required>
+      {{CONTROLS}}
+      <div class="field">
+        <span>File</span>
+        <input type="file" name="file" accept=".epub,.cbz" required>
+      </div>
       <button>Upload</button>
     </div>
   </form>

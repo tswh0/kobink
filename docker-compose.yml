@@ -3,6 +3,7 @@ services:
     image: ghcr.io/tswh0/kobink:${KOBINK_TAG:-latest}
     build:
       context: .
+      target: ${KOBINK_TARGET:-runtime}
     pull_policy: missing
     container_name: kobink
     restart: unless-stopped
