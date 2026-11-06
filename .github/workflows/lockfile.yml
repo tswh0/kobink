@@ -16,7 +16,7 @@ jobs:
       - name: resolve and verify
         run: |
           set +e
-          cargo update -p axum -p tower -p tower-http -p base64 2>&1 | tee update.log || cargo generate-lockfile 2>&1 | tee -a update.log
+          cargo generate-lockfile 2>&1 | tee update.log
           cargo check --locked --all-targets 2>&1 | tee check.log
           status=${PIPESTATUS[0]}
           if [ "$status" -ne 0 ]; then
