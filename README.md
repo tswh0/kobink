@@ -55,6 +55,8 @@ appends `/v1` itself. Press Sync afterwards.
 - Volumes arrive as a series with the right numbering. The name comes from the book's metadata,
   or from the title if the book has none (`Fire Punch v03`).
 - A sync with nothing new costs a few kilobytes.
+- A dashboard at `/<key>/admin` lists the shelf and lets you upload and delete books from the
+  browser, no Calibre needed.
 - The folder is read again every ten minutes. Drop a file in, wait, sync.
 - No database. One container, two folders.
 

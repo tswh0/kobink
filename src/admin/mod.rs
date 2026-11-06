@@ -204,11 +204,11 @@ fn row(book: &Book, base: &str) -> String {
         "<tr>\
 <td><img src=\"{base}/{id}/74/112/false/image.jpg\" width=\"37\" height=\"56\" alt=\"\" loading=\"lazy\"></td>\
 <td>{title}</td>\
-<td>{author}</td>\
-<td>{series}</td>\
-<td>{size}</td>\
-<td><form method=\"post\" action=\"{base}/admin/delete/{id}\">\
-<button class=\"small\" data-variant=\"danger\">Delete</button></form></td>\
+<td class=\"author\">{author}</td>\
+<td class=\"series\">{series}</td>\
+<td class=\"size\">{size}</td>\
+<td class=\"actions\"><form method=\"post\" action=\"{base}/admin/delete/{id}\">\
+<button class=\"small outline\" data-variant=\"danger\">Delete</button></form></td>\
 </tr>",
         base = base,
         id = book.id,
