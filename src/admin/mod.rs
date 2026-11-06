@@ -144,9 +144,13 @@ fn redirect() -> Response {
 }
 
 fn file_name(name: &str) -> Option<String> {
+    if name.contains('/') || name.contains('\\') || name.starts_with('.') {
+        return None;
+    }
+
     let name = Path::new(name).file_name()?.to_string_lossy().to_string();
 
-    if name.starts_with('.') || !name.to_lowercase().ends_with(".epub") {
+    if !name.to_lowercase().ends_with(".epub") {
         return None;
     }
 
