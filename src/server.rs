@@ -3,6 +3,7 @@ use axum::{http::StatusCode, middleware, Router};
 mod logging;
 use crate::{
     auth,
+    drop,
     kobo::{self, create_kobo_router},
     library::{create_download_router, models::LibraryState},
 };
@@ -36,6 +37,7 @@ pub async fn start_server() {
         )
         .nest(&format!("/{api_key}/download"), create_download_router())
         .merge(kobo::covers::create_cover_router(&format!("/{api_key}")))
+        .merge(drop::create_drop_router(&format!("/{api_key}")))
         .fallback(not_found)
         .layer(middleware::from_fn(logging::log_request_response))
         .with_state(Arc::clone(&arcref));

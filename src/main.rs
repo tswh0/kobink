@@ -1,4 +1,5 @@
 mod auth;
+mod drop;
 mod kobo;
 mod library;
 mod server;

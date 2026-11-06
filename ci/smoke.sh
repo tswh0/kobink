@@ -212,6 +212,21 @@ template=$(printf '%s' "$init" | jq -r '.Resources.image_url_template')
 [[ $template == *"$KEY"* ]] || fail "image template does not carry the key: $template"
 say "image template" "$template"
 
+section "drop"
+check "drop page" "$(status "$(api /drop)")" 200
+check "drop without key" "$(status "$BASE/drop")" 404
+check "drop stylesheet" "$(status "$(api /drop/style.css)")" 200
+
+cp "$LIB/BLAME!/BLAME! Master Edition v01.kepub.epub" "$WORK/drop-test.kepub.epub"
+body=$(curl -s -L -F "file=@$WORK/drop-test.kepub.epub" "$(api /drop/upload)")
+[[ $body == *"Book added"* ]] || fail "drop upload did not confirm"
+json "books after drop" "$(curl -s "$(api /kobo/v1/library/sync)")" 'length' 6
+
+body=$(curl -s -L -F "file=@$WORK/drop-test.kepub.epub;filename=../evil.epub" "$(api /drop/upload)")
+[[ $body == *"Only .epub files"* ]] || fail "a path in the upload name was accepted"
+
+rm -f "$LIB/drop-test.kepub.epub"
+
 section "background"
 for _ in $(seq 1 20); do
     [ "$(grep -c 'library refreshed' "$LOG" || true)" -ge 1 ] && break

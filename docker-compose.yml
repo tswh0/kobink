@@ -17,5 +17,5 @@ services:
       LIBRARY_REFRESH_SECONDS: ${LIBRARY_REFRESH_SECONDS:-600}
       RUST_LOG: ${RUST_LOG:-info}
     volumes:
-      - ${LIBRARY_DIR:-./library}:/library:ro
+      - "${LIBRARY_DIR:-./library}:/library${LIBRARY_WRITE:-:ro}"
       - ./data:/app/data

@@ -55,6 +55,9 @@ appends `/v1` itself. Press Sync afterwards.
 - Volumes arrive as a series with the right numbering. The name comes from the book's metadata,
   or from the title if the book has none (`Fire Punch v03`).
 - A sync with nothing new costs a few kilobytes.
+- A drop page at `/<key>/drop` takes an EPUB from the browser and writes it into the library.
+  The folder must be mounted read-write for that (`LIBRARY_WRITE=:rw` in `.env`); otherwise the
+  page tells you so.
 - The folder is read again every ten minutes. Drop a file in, wait, sync.
 - No database. One container, two folders.
 

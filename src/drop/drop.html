@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>kobink · drop a book</title>
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0c0c0d" media="(prefers-color-scheme: dark)">
+<link rel="stylesheet" href="{{BASE}}/drop/style.css">
+<style>
+  body {
+    display: grid;
+    place-items: center;
+    min-height: 100dvh;
+    margin: 0;
+    padding: max(1.25rem, env(safe-area-inset-top)) max(1.25rem, env(safe-area-inset-right))
+      max(1.25rem, env(safe-area-inset-bottom)) max(1.25rem, env(safe-area-inset-left));
+  }
+  article.card {
+    width: 100%;
+    max-width: 26rem;
+  }
+  article.card header {
+    border-bottom: 0;
+    padding-bottom: 0;
+  }
+  article.card header h1 {
+    margin: 0 0 .35rem;
+    font-size: var(--text-3);
+  }
+  article.card header p {
+    margin: 0;
+    color: var(--muted-foreground);
+    font-size: var(--text-7);
+  }
+  form {
+    margin-top: 1.25rem;
+  }
+  input[type="file"] {
+    width: 100%;
+  }
+  button {
+    width: 100%;
+  }
+  .notice {
+    margin: 1rem 0 0;
+    font-size: var(--text-7);
+  }
+  .notice.ok {
+    color: var(--success);
+  }
+  .notice.error {
+    color: var(--danger);
+  }
+  @media (max-width: 30rem) {
+    body {
+      place-items: start center;
+      padding-top: 2.5rem;
+    }
+  }
+</style>
+</head>
+<body>
+
+<article class="card">
+  <header>
+    <h1>Drop a book</h1>
+    <p>EPUB or KEPUB. It lands in the library folder and shows up on the reader after the next sync.</p>
+  </header>
+
+  {{NOTICE}}
+
+  <form method="post" action="{{BASE}}/drop/upload" enctype="multipart/form-data">
+    <div class="vstack gap-4">
+      <input type="file" name="file" accept=".epub" required>
+      <button>Upload</button>
+    </div>
+  </form>
+</article>
+
+</body>
+</html>
