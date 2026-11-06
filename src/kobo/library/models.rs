@@ -1,12 +1,14 @@
 #![allow(non_snake_case)]
 
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::library::models::{book_id, Book};
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SyncEvent {
-    pub NewEntitlement: Entitlement, // can also be ChangedEntitlement
-                                     // pub ChangedReadingState: // on calibre
+    pub NewEntitlement: Entitlement,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -109,61 +111,91 @@ pub struct Series {
     pub Id: Uuid,
 }
 
-/*
- * {
-    "BookEntitlement": {
-        "Accessibility": "Full",
-        "ActivePeriod": {
-            "From": "timestamp, datetime.now"
-        },
-        "Created": "timestamp, book creation date",
-        "CrossRevisionId": "book uuid",
-        "Id": "book uuid",
-        "IsRemoved": "bool",
-        "IsHiddenFromArchive": false,
-        "IsLocked": false,
-        "LastModified": "timestamp, book last modified date",
-        "OriginCategory": "Imported",
-        "RevisionId": "book uuid",
-        "Status": "Active"
-    },
-    "BookMetadata": {
-        "Categories": ["00000000-0000-0000-000000000001"],
-        "Contributors": ["name"],
-        "ContributorRoles": [{"Name": "author name"}],
-        "CoverImageId": "book uuid",
-        "CrossRevisionId":"book uuid",
-        "CurrentDisplayPrice": {"CurrencyCode": "USD", "TotalAmount": 0},
-        "CurrentLoveDisplayPrice": {"TotalAmount": 0},
-        "Description": "description",
-        "DownloadUrls": [
-            {
-                "Format": "EPUB",
-                "Size": "book file size in bytes",
-                "Url": "book download url",
-                "Platform": "Generic"
-            }
-        ],
-        "EntitlementId": "book uuid",
-        "ExternalIds": [],
-        "Genre": "00000000-0000-0000-000000000001",
-        "IsEligibleForKoboLove": false,
-        "IsInternetArchive": false,
-        "IsPreOrder": false,
-        "IsSocialEnabled": true,
-        "Language": "en",
-        "Phonetic-Pronunciations": {},
-        "PublicationDate": "timestamp, book publication date",
-        "Publisher": {"Imprint": "", "Name": "publisher name"},
-        "RevisionId":"book uuid",
-        "Series": {
-            "Name": "series name",
-            "Number": 1,
-            "NumberFloat": 1.0,
-            "Id": "series uuid"
-        }, // optional, can be omitted
-        "Title": "book title",
-        "WorkId": "book uuid"
+fn kobo_timestamp(time: DateTime<Utc>) -> String {
+    time.format("%Y-%m-%dT%H:%M:%SZ").to_string()
+}
+
+impl SyncEvent {
+    pub fn new(book: &Book) -> Self {
+        Self {
+            NewEntitlement: Entitlement::new(book),
+        }
     }
 }
- */
+
+impl Entitlement {
+    pub fn new(book: &Book) -> Self {
+        let mut entitlement = Self::empty(book.id);
+        entitlement.BookMetadata.Title = book.title.clone();
+        entitlement.BookMetadata.Description = book.description.clone();
+        entitlement.BookMetadata.DownloadUrls = book.download_urls();
+        entitlement.BookMetadata.Contributors = vec![book.author.clone()];
+        entitlement.BookMetadata.ContributorRoles = vec![ContributorRole {
+            Name: book.author.clone(),
+        }];
+
+        if let Some(series) = &book.series {
+            entitlement.BookMetadata.Series = Some(Series {
+                Name: series.name.clone(),
+                Number: series.number.round() as u64,
+                NumberFloat: series.number,
+                Id: book_id(&format!("series|{}", series.name)),
+            });
+        }
+
+        entitlement
+    }
+
+    fn empty(uuid: Uuid) -> Self {
+        let now = kobo_timestamp(Utc::now());
+
+        Self {
+            BookEntitlement: BookEntitlement {
+                Accessibility: "Full".to_string(),
+                ActivePeriod: ActivePeriod { From: now.clone() },
+                Created: now.clone(),
+                CrossRevisionId: uuid,
+                Id: uuid,
+                IsRemoved: false,
+                IsHiddenFromArchive: false,
+                IsLocked: false,
+                LastModified: now.clone(),
+                OriginCategory: "Imported".to_string(),
+                RevisionId: uuid,
+                Status: "Active".to_string(),
+            },
+            BookMetadata: BookMetadata {
+                Categories: vec!["00000000-0000-0000-000000000001".to_string()],
+                Contributors: vec![],
+                ContributorRoles: vec![],
+                CoverImageId: uuid,
+                CrossRevisionId: uuid,
+                CurrentDisplayPrice: CurrentDisplayPrice {
+                    CurrencyCode: "USD".to_string(),
+                    TotalAmount: 0,
+                },
+                CurrentLoveDisplayPrice: CurrentLoveDisplayPrice { TotalAmount: 0 },
+                Description: "".to_string(),
+                DownloadUrls: vec![],
+                EntitlementId: uuid,
+                ExternalIds: vec![],
+                Genre: "00000000-0000-0000-000000000001".to_string(),
+                IsEligibleForKoboLove: false,
+                IsInternetArchive: false,
+                IsPreOrder: false,
+                IsSocialEnabled: true,
+                Language: "en".to_string(),
+                PhoneticPronunciations: PhoneticPronunciations {},
+                PublicationDate: now,
+                Publisher: Publisher {
+                    Imprint: "".to_string(),
+                    Name: "".to_string(),
+                },
+                RevisionId: uuid,
+                Series: None,
+                Title: "".to_string(),
+                WorkId: uuid,
+            },
+        }
+    }
+}

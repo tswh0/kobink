@@ -18,13 +18,15 @@ use super::models::{Entitlement, SyncEvent};
 
 static SYNC_CACHE: Mutex<Option<(u64, Bytes)>> = Mutex::new(None);
 
+const SYNCTOKEN_HEADER: &str = "x-kobo-synctoken";
+
 pub fn create_library_router() -> Router<Arc<Mutex<LibraryState>>> {
     Router::new()
         .route("/{book_id}", delete(stub))
         .route("/{book_id}/state", get(handle_state).put(stub))
         .route("/{book_id}/metadata", get(handle_metadata))
-        .route("/tags/{book_or_tag_id_idk}/items", post(stub))
-        .route("/tags/{book_or_tag_id_idk}/items/delete", post(stub))
+        .route("/tags/{book_or_tag_id}/items", post(stub))
+        .route("/tags/{book_or_tag_id}/items/delete", post(stub))
         .route("/sync", get(handle_sync))
 }
 
@@ -45,15 +47,10 @@ async fn handle_metadata(
             .map(|book| Entitlement::new(book).BookMetadata)
     };
 
-    let Some(metadata) = metadata else {
-        return StatusCode::NOT_FOUND.into_response();
-    };
-
-    (
-        [(header::CONTENT_TYPE, "application/json; charset=utf-8")],
-        Json(vec![metadata]),
-    )
-        .into_response()
+    match metadata {
+        Some(metadata) => Json(vec![metadata]).into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
 }
 
 async fn stub() -> StatusCode {
@@ -72,7 +69,7 @@ async fn handle_sync(
     };
 
     let known = headers
-        .get("x-kobo-synctoken")
+        .get(SYNCTOKEN_HEADER)
         .and_then(|value| value.to_str().ok())
         .and_then(SyncToken::decode);
 
@@ -83,7 +80,7 @@ async fn handle_sync(
 
     let mut response_headers = HeaderMap::new();
     if let Ok(token) = HeaderValue::try_from(SyncToken::new(version).encode()) {
-        response_headers.insert("x-kobo-synctoken", token);
+        response_headers.insert(SYNCTOKEN_HEADER, token);
     }
     response_headers.insert(
         header::CONTENT_TYPE,

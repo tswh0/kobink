@@ -75,7 +75,7 @@ against the real binary on every push. The SQL dependencies and demo endpoints a
 - Set `API_KEY` if you want to pick the code yourself instead of using the generated one.
 - A book that refuses to update: delete it on the device and sync again.
 - The image is distroless, so there is no shell inside it. `docker exec -it kobink sh` won't
-  work; use `docker logs kobink`, and `docker exec kobink /usr/local/bin/kobink --health` if you
-  want to poke it.
+  work; use `docker logs kobink`. `docker exec kobink /usr/local/bin/kobink --version` and
+  `--health` answer without a shell.
 
 License: AGPL-3.0, like the original.

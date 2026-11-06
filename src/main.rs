@@ -3,7 +3,6 @@ mod kobo;
 mod library;
 mod server;
 
-use dotenvy::dotenv;
 use server::start_server;
 use std::{net::TcpStream, time::Duration};
 use tracing::info;
@@ -34,7 +33,6 @@ fn health() -> i32 {
 
 #[tokio::main]
 async fn run() {
-    let _ = dotenv();
     tracing_subscriber::fmt().init();
 
     info!("kobink {VERSION} says hello");

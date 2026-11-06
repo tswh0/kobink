@@ -18,8 +18,7 @@ use axum::{
 };
 use serde_json::Value;
 
-const SYNCTOKEN_HEADER: &'static str = "x-kobo-synctoken";
-const INITIALIZATION_DATA: &'static str = include_str!("./data/initialization.json");
+const INITIALIZATION_DATA: &str = include_str!("./data/initialization.json");
 
 pub fn create_kobo_router() -> Router<Arc<Mutex<LibraryState>>> {
     Router::new()
@@ -37,16 +36,9 @@ pub fn create_kobo_router() -> Router<Arc<Mutex<LibraryState>>> {
 }
 
 async fn handle_auth_device(Json(_): Json<AuthDeviceRequest>) -> impl IntoResponse {
-    // basically a stub
-    let mut headers = HeaderMap::new();
-    headers.insert(
-        SYNCTOKEN_HEADER,
-        HeaderValue::from_static("SAMPLE_SYNCTOKEN"),
-    );
     (
         StatusCode::OK,
-        headers,
-        Json(AuthDeviceResponse::from_user_key("SAMPLE_USER_KEY")),
+        Json(AuthDeviceResponse::sample()),
     )
 }
 
@@ -61,39 +53,37 @@ async fn handle_initialization() -> Response {
     (headers, initialization()).into_response()
 }
 
-fn initialization() -> String {
+fn initialization() -> &'static str {
     static INITIALIZED: OnceLock<String> = OnceLock::new();
 
-    INITIALIZED
-        .get_or_init(|| {
-            let mut root: Value =
-                serde_json::from_str(INITIALIZATION_DATA).unwrap_or(Value::Null);
-            let base = public_base();
-            let key = api_key();
+    INITIALIZED.get_or_init(|| {
+        let mut root: Value =
+            serde_json::from_str(INITIALIZATION_DATA).unwrap_or(Value::Null);
+        let base = public_base();
+        let key = api_key();
 
-            if let Some(resources) = root.get_mut("Resources").and_then(Value::as_object_mut) {
-                resources.insert("image_host".to_string(), Value::String(base.to_string()));
-                resources.insert(
-                    "image_url_template".to_string(),
-                    Value::String(format!(
-                        "{base}/{key}/{{ImageId}}/{{width}}/{{height}}/false/image.jpg"
-                    )),
-                );
-                resources.insert(
-                    "image_url_quality_template".to_string(),
-                    Value::String(format!(
-                        "{base}/{key}/{{ImageId}}/{{width}}/{{height}}/{{Quality}}/{{isGreyscale}}/image.jpg"
-                    )),
-                );
-                resources.insert(
-                    "library_sync".to_string(),
-                    Value::String(format!("{base}/{key}/kobo/v1/library/sync")),
-                );
-            }
+        if let Some(resources) = root.get_mut("Resources").and_then(Value::as_object_mut) {
+            resources.insert("image_host".to_string(), Value::String(base.to_string()));
+            resources.insert(
+                "image_url_template".to_string(),
+                Value::String(format!(
+                    "{base}/{key}/{{ImageId}}/{{width}}/{{height}}/false/image.jpg"
+                )),
+            );
+            resources.insert(
+                "image_url_quality_template".to_string(),
+                Value::String(format!(
+                    "{base}/{key}/{{ImageId}}/{{width}}/{{height}}/{{Quality}}/{{isGreyscale}}/image.jpg"
+                )),
+            );
+            resources.insert(
+                "library_sync".to_string(),
+                Value::String(format!("{base}/{key}/kobo/v1/library/sync")),
+            );
+        }
 
-            root.to_string()
-        })
-        .clone()
+        root.to_string()
+    })
 }
 
 async fn stub() -> (StatusCode, &'static str) {

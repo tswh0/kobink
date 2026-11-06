@@ -1,9 +1,4 @@
-use axum::{
-    http::StatusCode,
-    middleware,
-    routing::get,
-    Router,
-};
+use axum::{http::StatusCode, middleware, Router};
 
 mod logging;
 use crate::{
@@ -27,7 +22,7 @@ pub fn port() -> u16 {
 
 pub async fn start_server() {
     let library_path =
-        std::env::var("LIBRARY_PATH").unwrap_or_else(|_| "/media/kobink_test".to_string());
+        std::env::var("LIBRARY_PATH").unwrap_or_else(|_| "/library".to_string());
     let initial_state = LibraryState::new(&library_path);
     let arcref = Arc::new(Mutex::new(initial_state));
 
@@ -35,7 +30,6 @@ pub async fn start_server() {
 
     let api_key = auth::api_key();
     let app = Router::<Arc<Mutex<LibraryState>>>::new()
-        .route("/", get(root))
         .nest(
             &format!("/{api_key}/kobo/v1"),
             create_kobo_router().layer(CompressionLayer::new()),
@@ -47,11 +41,20 @@ pub async fn start_server() {
         .with_state(Arc::clone(&arcref));
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port()));
-    let listener = tokio::net::TcpListener::bind(addr.to_string())
-        .await
-        .unwrap();
+    let listener = match tokio::net::TcpListener::bind(addr.to_string()).await {
+        Ok(listener) => listener,
+        Err(error) => {
+            tracing::error!("cannot listen on {addr}: {error}");
+            std::process::exit(1);
+        }
+    };
+
     info!("listening on {}", addr);
-    axum::serve(listener, app).await.unwrap();
+
+    if let Err(error) = axum::serve(listener, app).await {
+        tracing::error!("server stopped: {error}");
+        std::process::exit(1);
+    }
 }
 
 fn spawn_library_refresh(library: Arc<Mutex<LibraryState>>, library_path: &str) {
@@ -106,10 +109,6 @@ fn spawn_library_refresh(library: Arc<Mutex<LibraryState>>, library_path: &str) 
     });
 
     info!("library refresh every {}s", interval_seconds);
-}
-
-async fn root() -> &'static str {
-    "Hello, World!"
 }
 
 async fn not_found(uri: axum::http::Uri) -> (StatusCode, String) {

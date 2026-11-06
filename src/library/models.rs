@@ -38,7 +38,7 @@ impl BookSeries {
 pub struct Book {
     pub id: Uuid,
     pub title: String,
-    pub authors: Vec<String>,
+    pub author: String,
     pub description: String,
     pub path: PathBuf,
     pub size: u64,
@@ -246,7 +246,7 @@ fn read_book(path: &Path, size: u64, modified: Option<SystemTime>) -> Option<Boo
     Some(Book {
         id,
         title,
-        authors: vec![author],
+        author,
         description,
         path: path.to_path_buf(),
         size,

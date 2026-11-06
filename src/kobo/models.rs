@@ -46,13 +46,13 @@ pub struct AuthDeviceResponse {
 }
 
 impl AuthDeviceResponse {
-    pub fn from_user_key(user_key: impl ToString) -> Self {
+    pub fn sample() -> Self {
         Self {
             AccessToken: String::new(),
             RefreshToken: "SAMPLE_REFRESH_TOKEN".to_string(),
             TokenType: "Bearer".to_string(),
             TrackingId: "SAMPLE_TRACKING_ID".to_string(),
-            UserKey: user_key.to_string(),
+            UserKey: "SAMPLE_USER_KEY".to_string(),
         }
     }
 }
