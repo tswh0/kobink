@@ -19,7 +19,7 @@ pub fn create_download_router() -> Router<Arc<Mutex<LibraryState>>> {
 }
 
 async fn handle_file_download(
-    Path((book_id, _book_format)): Path<(String, String)>,
+    Path((book_id, _book_format, _filename)): Path<(String, String, String)>,
     State(library): State<Arc<Mutex<LibraryState>>>,
 ) -> Response {
     let book = {
