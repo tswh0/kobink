@@ -20,11 +20,11 @@ static SYNC_CACHE: Mutex<Option<(u64, Bytes)>> = Mutex::new(None);
 
 pub fn create_library_router() -> Router<Arc<Mutex<LibraryState>>> {
     Router::new()
-        .route("/:book_id", delete(stub))
-        .route("/:book_id/state", get(handle_state).put(stub))
-        .route("/:book_id/metadata", get(handle_metadata))
-        .route("/tags/:book_or_tag_id_idk/items", post(stub))
-        .route("/tags/:book_or_tag_id_idk/items/delete", post(stub))
+        .route("/{book_id}", delete(stub))
+        .route("/{book_id}/state", get(handle_state).put(stub))
+        .route("/{book_id}/metadata", get(handle_metadata))
+        .route("/tags/{book_or_tag_id_idk}/items", post(stub))
+        .route("/tags/{book_or_tag_id_idk}/items/delete", post(stub))
         .route("/sync", get(handle_sync))
 }
 

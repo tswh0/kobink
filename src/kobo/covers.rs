@@ -31,7 +31,7 @@ const MAX_COVER_ALLOC: u64 = 256 * 1024 * 1024;
 
 pub fn create_cover_router(prefix: &str) -> Router<Arc<Mutex<LibraryState>>> {
     Router::new().route(
-        &format!("{prefix}/:book_id/:width/:height/*image"),
+        &format!("{prefix}/{{book_id}}/{{width}}/{{height}}/{{*image}}"),
         get(handle_cover),
     )
 }

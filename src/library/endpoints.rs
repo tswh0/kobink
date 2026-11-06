@@ -15,7 +15,7 @@ use super::models::LibraryState;
 
 pub fn create_download_router() -> Router<Arc<Mutex<LibraryState>>> {
     Router::new().route(
-        "/:book_id/:book_format/:filename",
+        "/{book_id}/{book_format}/{filename}",
         get(handle_file_download),
     )
 }
