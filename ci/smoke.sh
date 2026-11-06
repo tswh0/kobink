@@ -114,7 +114,7 @@ out=""
 input=""
 while [ "$#" -gt 0 ]; do
     case "$1" in
-        --version) echo "KCC 12.1.3 (stub)"; exit 0 ;;
+        -h) echo "usage: kcc-c2e (stub)"; exit 0 ;;
         -o) out=$2; shift ;;
         --) shift; input=$1; shift; break ;;
     esac

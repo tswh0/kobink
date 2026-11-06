@@ -59,7 +59,7 @@ pub fn available() -> bool {
 
     *AVAILABLE.get_or_init(|| {
         std::process::Command::new(bin())
-            .arg("--version")
+            .arg("-h")
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status()
