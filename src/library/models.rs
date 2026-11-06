@@ -191,48 +191,18 @@ pub fn scan(library_path: &str, previous: &[Book]) -> Vec<Book> {
             }
         }
 
-        let epub = match EpubDoc::new(entry.path()) {
-            Ok(epub) => epub,
-            Err(error) => {
+        let parsed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            read_book(entry.path(), size, modified)
+        }));
+
+        match parsed {
+            Ok(Some(book)) => books.push(book),
+            Ok(None) => unreadable += 1,
+            Err(_) => {
                 unreadable += 1;
-                tracing::warn!(
-                    "failed to load epub at {}: {error:?}",
-                    entry.path().display()
-                );
-                continue;
+                tracing::warn!("epub at {} panicked while parsing", entry.path().display());
             }
-        };
-
-        let title = epub.get_title().unwrap_or_else(|| "Untitled".to_string());
-        let author = epub
-            .mdata("creator")
-            .map(|item| item.value.clone())
-            .unwrap_or_else(|| "Unknown author".to_string());
-        let description = epub
-            .mdata("description")
-            .map(|item| item.value.clone())
-            .unwrap_or_default();
-
-        let fixed_layout = epub
-            .mdata("rendition:layout")
-            .is_some_and(|item| item.value.trim() == "pre-paginated");
-
-        let filename = entry.file_name().to_string_lossy().to_string();
-        let id = book_id(&format!("{title}|{author}|{filename}"));
-        let series = series_of(&epub).or_else(|| series_from_title(&title));
-
-        books.push(Book {
-            id,
-            title,
-            authors: vec![author],
-            description,
-            path: entry.path().to_path_buf(),
-            size,
-            modified,
-            fixed_layout,
-            is_kepub: filename.ends_with(".kepub.epub"),
-            series,
-        });
+        }
     }
 
     tracing::info!(
@@ -243,6 +213,50 @@ pub fn scan(library_path: &str, previous: &[Book]) -> Vec<Book> {
     );
 
     books
+}
+
+fn read_book(path: &Path, size: u64, modified: Option<SystemTime>) -> Option<Book> {
+    let epub = match EpubDoc::new(path) {
+        Ok(epub) => epub,
+        Err(error) => {
+            tracing::warn!("failed to load epub at {}: {error:?}", path.display());
+            return None;
+        }
+    };
+
+    let title = epub.get_title().unwrap_or_else(|| "Untitled".to_string());
+    let author = epub
+        .mdata("creator")
+        .map(|item| item.value.clone())
+        .unwrap_or_else(|| "Unknown author".to_string());
+    let description = epub
+        .mdata("description")
+        .map(|item| item.value.clone())
+        .unwrap_or_default();
+
+    let fixed_layout = epub
+        .mdata("rendition:layout")
+        .is_some_and(|item| item.value.trim() == "pre-paginated");
+
+    let filename = path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let id = book_id(&format!("{title}|{author}|{filename}"));
+    let series = series_of(&epub).or_else(|| series_from_title(&title));
+
+    Some(Book {
+        id,
+        title,
+        authors: vec![author],
+        description,
+        path: path.to_path_buf(),
+        size,
+        modified,
+        fixed_layout,
+        is_kepub: filename.ends_with(".kepub.epub"),
+        series,
+    })
 }
 
 fn series_of<R: std::io::Read + std::io::Seek>(epub: &EpubDoc<R>) -> Option<BookSeries> {

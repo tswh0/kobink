@@ -1,5 +1,6 @@
 use std::{
     fs,
+    io::Cursor,
     path::PathBuf,
     sync::{Arc, Mutex},
 };
@@ -12,7 +13,10 @@ use axum::{
     Router,
 };
 use epub::doc::EpubDoc;
-use image::{codecs::jpeg::JpegEncoder, imageops::FilterType, DynamicImage, ExtendedColorType};
+use image::{
+    codecs::jpeg::JpegEncoder, imageops::FilterType, DynamicImage, ExtendedColorType, ImageReader,
+    Limits,
+};
 use tracing::warn;
 
 use crate::library::models::LibraryState;
@@ -21,6 +25,9 @@ const DEFAULT_DIMENSION: u32 = 600;
 const MAX_DIMENSION: u32 = 3000;
 const JPEG_QUALITY: u8 = 80;
 const PREWARM: [(u32, u32); 3] = [(149, 223), (355, 530), (1264, 1680)];
+const MAX_COVER_BYTES: usize = 24 * 1024 * 1024;
+const MAX_COVER_SIDE: u32 = 12_000;
+const MAX_COVER_ALLOC: u64 = 256 * 1024 * 1024;
 
 pub fn create_cover_router(prefix: &str) -> Router<Arc<Mutex<LibraryState>>> {
     Router::new().route(
@@ -86,12 +93,19 @@ fn cover(book_id: &str, path: PathBuf, width: u32, height: u32) -> Option<Vec<u8
     let mut doc = EpubDoc::new(&path).ok()?;
     let (data, _) = doc.get_cover()?;
 
-    let decoded = match image::load_from_memory(&data) {
-        Ok(decoded) => decoded,
-        Err(error) => {
-            warn!("cannot decode the cover of {}: {error}", path.display());
-            return None;
-        }
+    if data.len() > MAX_COVER_BYTES {
+        warn!(
+            "cover of {} is {} bytes, over the {} byte limit",
+            path.display(),
+            data.len(),
+            MAX_COVER_BYTES
+        );
+        return None;
+    }
+
+    let Some(decoded) = decode(&data) else {
+        warn!("cannot decode the cover of {}", path.display());
+        return None;
     };
 
     let requested = render(&decoded, width, height)?;
@@ -110,6 +124,20 @@ fn cover(book_id: &str, path: PathBuf, width: u32, height: u32) -> Option<Vec<u8
     }
 
     Some(requested)
+}
+
+fn decode(data: &[u8]) -> Option<DynamicImage> {
+    let mut reader = ImageReader::new(Cursor::new(data))
+        .with_guessed_format()
+        .ok()?;
+
+    let mut limits = Limits::default();
+    limits.max_image_width = Some(MAX_COVER_SIDE);
+    limits.max_image_height = Some(MAX_COVER_SIDE);
+    limits.max_alloc = Some(MAX_COVER_ALLOC);
+    reader.limits(limits);
+
+    reader.decode().ok()
 }
 
 fn render(image: &DynamicImage, width: u32, height: u32) -> Option<Vec<u8>> {

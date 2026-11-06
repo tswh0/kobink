@@ -20,6 +20,13 @@ use std::{
 use tower_http::compression::CompressionLayer;
 use tracing::info;
 
+pub fn port() -> u16 {
+    std::env::var("KOBINK_PORT")
+        .ok()
+        .and_then(|value| value.trim().parse::<u16>().ok())
+        .unwrap_or(3000)
+}
+
 pub async fn start_server() {
     let library_path =
         std::env::var("LIBRARY_PATH").unwrap_or_else(|_| "/media/kobink_test".to_string());
@@ -41,7 +48,7 @@ pub async fn start_server() {
         .layer(middleware::from_fn(logging::log_request_response))
         .with_state(Arc::clone(&arcref));
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
+    let addr = SocketAddr::from(([0, 0, 0, 0], port()));
     let listener = tokio::net::TcpListener::bind(addr.to_string())
         .await
         .unwrap();

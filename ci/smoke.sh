@@ -120,6 +120,12 @@ done
 [ "$(status "$BASE/")" != "000" ] || fail "server never answered on $BASE"
 say "server" "up"
 
+if "$BIN" --health; then
+    say "health flag" "0"
+else
+    fail "--health exited non-zero while the server was up"
+fi
+
 section "auth"
 check "root" "$(status "$BASE/")" 200
 check "without key" "$(status "$BASE/kobo/v1/user/profile")" 404
