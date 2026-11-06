@@ -259,7 +259,7 @@ section "batch"
 cp "$LIB/R.F. Kuang/Babel - Rebecca F. Kuang (2022).epub" "$WORK/one.epub"
 cp "$LIB/R.F. Kuang/Babel - Rebecca F. Kuang (2022).epub" "$WORK/two.epub"
 body=$(curl -s -L -F "file=@$WORK/one.epub" -F "file=@$WORK/two.epub" "$(api /drop/upload)")
-[ "$(grep -c "Book added" <<< "$body")" = "2" ] || fail "two files in one request did not both confirm"
+[ "$(grep -o "Book added" <<< "$body" | wc -l)" -eq 2 ] || fail "two files in one request did not both confirm"
 [ -f "$LIB/one.epub" ] && [ -f "$LIB/two.epub" ] || fail "a file from the batch is missing"
 json "books after batch" "$(curl -s "$(api /kobo/v1/library/sync)")" 'length' 7
 rm -f "$LIB/one.epub" "$LIB/two.epub"
