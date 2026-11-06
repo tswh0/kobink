@@ -73,7 +73,7 @@ async fn upload(
         let name = field.name().unwrap_or_default().to_string();
 
         match name.as_str() {
-            "mode" => manga = field.text().await.as_deref() == Ok("manga"),
+            "mode" => manga = matches!(field.text().await.as_deref(), Ok("manga")),
             "profile" => profile = field.text().await.unwrap_or_default(),
             "file" => {
                 let file_name = field.file_name().unwrap_or_default().to_string();
@@ -339,9 +339,9 @@ fn controls() -> String {
         };
         let option = format!("<option value=\"{code}\"{selected}>{label}</option>");
 
-        match groups.iter_mut().find(|(known, _)| known == group) {
-            Some((_, options)) => options.push_str(&option),
-            None => groups.push((group, option)),
+        match groups.iter_mut().position(|entry| entry.0 == *group) {
+            Some(index) => groups[index].1.push_str(&option),
+            None => groups.push((*group, option)),
         }
     }
 
