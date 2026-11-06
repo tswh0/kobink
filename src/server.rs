@@ -5,7 +5,10 @@ use crate::{
     auth,
     drop,
     kobo::{self, create_kobo_router},
-    library::{create_download_router, models::LibraryState},
+    library::{
+        create_download_router,
+        models::{refresh, LibraryState},
+    },
 };
 use std::{
     net::SocketAddr,
@@ -27,7 +30,7 @@ pub async fn start_server() {
     let initial_state = LibraryState::new(&library_path);
     let arcref = Arc::new(Mutex::new(initial_state));
 
-    spawn_library_refresh(Arc::clone(&arcref), &library_path);
+    spawn_library_refresh(Arc::clone(&arcref));
 
     let api_key = auth::api_key();
     let app = Router::<Arc<Mutex<LibraryState>>>::new()
@@ -59,7 +62,7 @@ pub async fn start_server() {
     }
 }
 
-fn spawn_library_refresh(library: Arc<Mutex<LibraryState>>, library_path: &str) {
+fn spawn_library_refresh(library: Arc<Mutex<LibraryState>>) {
     let interval_seconds = std::env::var("LIBRARY_REFRESH_SECONDS")
         .ok()
         .and_then(|value| value.trim().parse::<u64>().ok())
@@ -70,43 +73,13 @@ fn spawn_library_refresh(library: Arc<Mutex<LibraryState>>, library_path: &str) 
         return;
     }
 
-    let library_path = library_path.to_string();
     tokio::spawn(async move {
         let mut ticker = tokio::time::interval(std::time::Duration::from_secs(interval_seconds));
         ticker.tick().await;
+
         loop {
             ticker.tick().await;
-
-            let previous = library
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner())
-                .books
-                .clone();
-
-            let path = library_path.clone();
-            let books =
-                match tokio::task::spawn_blocking(move || crate::library::models::scan(&path, &previous))
-                    .await
-                {
-                    Ok(books) => books,
-                    Err(error) => {
-                        tracing::warn!("library scan failed: {error}");
-                        continue;
-                    }
-                };
-
-            let version = crate::library::models::version(&books);
-            let count = books.len();
-
-            {
-                let mut state = library
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner());
-                state.books = Arc::new(books);
-                state.version = version;
-            }
-
-            info!("library refreshed: {} books", count);
+            refresh(Arc::clone(&library)).await;
         }
     });
 

@@ -5,7 +5,7 @@ use std::{
 
 use axum::{
     extract::{DefaultBodyLimit, Multipart, Query, State},
-    http::{header, StatusCode},
+    http::header,
     response::{Html, IntoResponse, Redirect, Response},
     routing::{get, post},
     Router,
