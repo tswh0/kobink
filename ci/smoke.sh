@@ -265,7 +265,7 @@ json "books after batch" "$(curl -s "$(api /kobo/v1/library/sync)")" 'length' 7
 rm -f "$LIB/one.epub" "$LIB/two.epub"
 
 section "manga"
-check "profile picker" "$(curl -s "$(api /drop)" | grep -c 'name="profile"')" 1
+check "profile picker" "$(curl -s "$(api /drop)" | grep -c '<select name="profile"')" 1
 
 body=$(curl -s -L -F "file=@$WORK/manga/cbz/Fire Punch v03.cbz" -F profile=KoL "$(api /drop/upload)")
 [[ $body == *"Converted and added"* ]] || fail "convert: no confirmation on the page"
@@ -308,7 +308,7 @@ done
 
 body=$(curl -s "http://127.0.0.1:$off_port/$KEY/drop")
 [[ $body == *"built with KCC"* ]] || fail "the page did not say that KCC is missing"
-[[ $body == *'name="profile"' ]] && fail "the profile picker appeared without KCC"
+[[ $body == *'<select name="profile"' ]] && fail "the profile picker appeared without KCC"
 
 body=$(curl -s -L -F "file=@$WORK/manga/cbz/Fire Punch v03.cbz" "http://127.0.0.1:$off_port/$KEY/drop/upload")
 [[ $body == *"no KCC"* ]] || fail "a cbz was accepted without kcc"
