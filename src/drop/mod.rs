@@ -282,8 +282,12 @@ fn series(title: &str) -> String {
             .or_else(|| bare.strip_prefix("vol"))
             .or_else(|| bare.strip_prefix('v'));
 
+        let next_is_number = tokens
+            .get(index + 1)
+            .is_some_and(|next| next.chars().all(|c| c.is_ascii_digit()));
+
         let is_marker = match number {
-            Some(rest) => !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit()),
+            Some(rest) => (!rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit())) || (rest.is_empty() && next_is_number),
             None => false,
         };
 
