@@ -101,7 +101,6 @@ impl Book {
 
 #[derive(Debug, Clone)]
 pub struct LibraryState {
-    pub path: String,
     pub books: Arc<Vec<Book>>,
     pub version: u64,
 }
@@ -112,7 +111,6 @@ impl LibraryState {
         let version = version(&books);
 
         Self {
-            path: library_path.to_string(),
             books: Arc::new(books),
             version,
         }

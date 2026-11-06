@@ -20,7 +20,6 @@ tower-http = { version = "0.5", features = ["fs", "compression-gzip"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 chrono = { version = "0.4", features = ["serde", "std"] }
-anyhow = "1.0.75"
 base64 = "0.21.5"
 uuid = { version = "1.6.1", features = ["v4", "macro-diagnostics", "fast-rng", "serde"] }
 walkdir = "2.4.0"

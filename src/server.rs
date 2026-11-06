@@ -5,8 +5,6 @@ use axum::{
     Router,
 };
 
-mod errors;
-pub use errors::AppError;
 mod logging;
 use crate::{
     auth,

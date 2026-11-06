@@ -22,12 +22,14 @@ pub fn create_download_router() -> Router<Arc<Mutex<LibraryState>>> {
 
 #[debug_handler]
 async fn handle_file_download(
-    Path((book_id, book_format)): Path<(String, String)>,
+    Path((book_id, _book_format)): Path<(String, String)>,
     State(library): State<Arc<Mutex<LibraryState>>>,
     request: Request,
 ) -> Response {
     let book = {
-        let library = library.lock().unwrap();
+        let library = library
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         library.find_book_by_id(&book_id).cloned()
     };
 

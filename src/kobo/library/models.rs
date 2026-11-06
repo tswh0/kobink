@@ -3,8 +3,6 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-pub type SyncResponse = Vec<SyncEvent>;
-
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SyncEvent {
     pub NewEntitlement: Entitlement, // can also be ChangedEntitlement
