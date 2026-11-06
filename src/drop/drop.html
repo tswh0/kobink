@@ -42,9 +42,15 @@
   }
   button {
     width: 100%;
+    background: var(--primary);
+    color: var(--primary-foreground);
+    border-color: var(--primary);
+  }
+  button:hover {
+    background: color-mix(in srgb, var(--primary), #000 12%);
   }
   .notice {
-    margin: 1rem 0 0;
+    margin: 1.25rem 0 0;
     font-size: var(--text-7);
   }
   .notice.ok {
