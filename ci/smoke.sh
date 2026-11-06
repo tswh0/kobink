@@ -212,6 +212,31 @@ template=$(printf '%s' "$init" | jq -r '.Resources.image_url_template')
 [[ $template == *"$KEY"* ]] || fail "image template does not carry the key: $template"
 say "image template" "$template"
 
+section "dashboard"
+check "dashboard" "$(code "$(api /admin)")" 200
+check "dashboard type" "$(header content-type "$(api /admin)")" "text/html; charset=utf-8"
+check "stylesheet" "$(code "$(api /admin/style.css)")" 200
+check "dashboard without key" "$(status "$BASE/admin")" 404
+
+html=$(curl -s "$(api /admin)")
+[[ $html == *"BLAME! Master Edition v01"* ]] || fail "dashboard does not list the books"
+say "dashboard lists" "$(printf '%s' "$html" | grep -c "<tr>") rows"
+
+cp "$LIB/BLAME!/BLAME! Master Edition v01.kepub.epub" "$WORK/upload-test.kepub.epub"
+check "upload" "$(curl -s -o /dev/null -w '%{http_code}' -F "file=@$WORK/upload-test.kepub.epub" "$(api /admin/upload)")" 303
+json "books after upload" "$(curl -s "$(api /kobo/v1/library/sync)")" 'length' 6
+
+check "reject a traversal name" \
+    "$(curl -s -o /dev/null -w '%{http_code}' -F "file=@$WORK/upload-test.kepub.epub;filename=../evil.epub" "$(api /admin/upload)")" \
+    400
+
+uploaded=$(curl -s "$(api /kobo/v1/library/sync)" |
+    jq -r '[.[] | select(.NewEntitlement.BookMetadata.DownloadUrls[0].Url | test("upload-test"))][0].NewEntitlement.BookEntitlement.Id')
+[ -n "$uploaded" ] || fail "the uploaded book never reached the library"
+
+check "delete" "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$(api "/admin/delete/$uploaded")")" 303
+json "books after delete" "$(curl -s "$(api /kobo/v1/library/sync)")" 'length' 5
+
 section "background"
 for _ in $(seq 1 20); do
     [ "$(grep -c 'library refreshed' "$LOG" || true)" -ge 1 ] && break

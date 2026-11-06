@@ -2,7 +2,7 @@ use epub::doc::EpubDoc;
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, Mutex},
     time::{SystemTime, UNIX_EPOCH},
 };
 use uuid::Uuid;
@@ -95,6 +95,7 @@ impl Book {
 
 #[derive(Debug, Clone)]
 pub struct LibraryState {
+    pub path: String,
     pub books: Arc<Vec<Book>>,
     pub version: u64,
 }
@@ -105,6 +106,7 @@ impl LibraryState {
         let version = version(&books);
 
         Self {
+            path: library_path.to_string(),
             books: Arc::new(books),
             version,
         }
@@ -325,4 +327,34 @@ fn series_from_title(title: &str) -> Option<BookSeries> {
     }
 
     None
+}
+
+pub async fn refresh(library: Arc<Mutex<LibraryState>>) {
+    let (path, previous) = {
+        let state = library
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        (state.path.clone(), state.books.clone())
+    };
+
+    let books = match tokio::task::spawn_blocking(move || scan(&path, &previous)).await {
+        Ok(books) => books,
+        Err(error) => {
+            tracing::warn!("library scan failed: {error}");
+            return;
+        }
+    };
+
+    let version = version(&books);
+    let count = books.len();
+
+    {
+        let mut state = library
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        state.books = Arc::new(books);
+        state.version = version;
+    }
+
+    tracing::info!("library refreshed: {} books", count);
 }

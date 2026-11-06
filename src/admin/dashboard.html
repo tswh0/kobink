@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>kobink · library</title>
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0c0c0d" media="(prefers-color-scheme: dark)">
+<link rel="stylesheet" href="{{BASE}}/admin/style.css">
+<style>
+  body {
+    display: flex;
+    flex-direction: column;
+    min-height: 100dvh;
+  }
+  main {
+    flex: 1 0 auto;
+  }
+  .shell {
+    width: 100%;
+    max-width: 58rem;
+    margin-inline: auto;
+    padding-block: 2.5rem;
+    padding-inline: max(1rem, env(safe-area-inset-left), env(safe-area-inset-right));
+  }
+  header.page {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+  }
+  header.page h1 {
+    margin: 0;
+  }
+  header.page p {
+    margin: 0;
+    font-size: var(--text-7);
+    color: var(--muted-foreground);
+  }
+  header.page form {
+    margin: 0;
+  }
+  article.card header h3 {
+    margin: 0;
+  }
+  td img {
+    display: block;
+    border-radius: var(--radius-small);
+  }
+  td form {
+    margin: 0;
+  }
+  td.size,
+  th.size {
+    text-align: right;
+    white-space: nowrap;
+  }
+  td.series {
+    color: var(--muted-foreground);
+  }
+  td.actions {
+    width: 1%;
+    white-space: nowrap;
+  }
+  footer.page {
+    padding: 2rem 1rem calc(2rem + env(safe-area-inset-bottom));
+    text-align: center;
+    font-size: var(--text-7);
+    color: var(--muted-foreground);
+  }
+  @media (max-width: 40rem) {
+    td.author,
+  th.author,
+  td.series,
+  th.series {
+      display: none;
+    }
+  }
+</style>
+</head>
+<body>
+
+<main class="shell">
+  <header class="page">
+    <div>
+      <h1>kobink</h1>
+      <p>{{COUNT}} books · {{SIZE}} · {{PATH}}</p>
+    </div>
+    <form method="post" action="{{BASE}}/admin/rescan">
+      <button class="outline small">Rescan now</button>
+    </form>
+  </header>
+
+  <article class="card">
+    <header><h3>Add a book</h3></header>
+    <form method="post" action="{{BASE}}/admin/upload" enctype="multipart/form-data" class="hstack gap-2 items-center">
+      <input type="file" name="file" accept=".epub" required>
+      <button>Upload</button>
+    </form>
+    <small data-hint>EPUB, or KEPUB converted with KCC. The reader picks it up on the next sync.</small>
+  </article>
+
+  <article class="card mt-6">
+    <div class="table">
+      <table>
+        <thead>
+          <tr>
+            <th></th>
+            <th>Title</th>
+            <th class="author">Author</th>
+            <th class="series">Series</th>
+            <th class="size">Size</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+{{ROWS}}
+        </tbody>
+      </table>
+    </div>
+  </article>
+</main>
+
+<footer class="page">kobink · the shelf in this container, nothing else</footer>
+
+</body>
+</html>
