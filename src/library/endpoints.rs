@@ -1,14 +1,13 @@
 use std::sync::{Arc, Mutex};
 
 use axum::{
-    debug_handler,
-    extract::{Path, Request, State},
+    extract::{Path, State},
     http::{header, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     routing::get,
     Router,
 };
-use tower_http::services::ServeFile;
+use tracing::warn;
 
 use super::models::LibraryState;
 
@@ -19,11 +18,9 @@ pub fn create_download_router() -> Router<Arc<Mutex<LibraryState>>> {
     )
 }
 
-#[debug_handler]
 async fn handle_file_download(
     Path((book_id, _book_format)): Path<(String, String)>,
     State(library): State<Arc<Mutex<LibraryState>>>,
-    request: Request,
 ) -> Response {
     let book = {
         let library = library
@@ -33,34 +30,35 @@ async fn handle_file_download(
     };
 
     let Some(book) = book else {
-        return (StatusCode::NOT_FOUND, "book not found").into_response();
+        return StatusCode::NOT_FOUND.into_response();
     };
 
-    let mut file = ServeFile::new(&book.path);
-    let mut response = match file.try_call(request).await {
-        Ok(response) => response,
+    let data = match tokio::fs::read(&book.path).await {
+        Ok(data) => data,
         Err(error) => {
-            tracing::warn!("cannot serve {}: {error}", book.path.display());
-
-            let status = if error.kind() == std::io::ErrorKind::NotFound {
-                StatusCode::NOT_FOUND
-            } else {
-                StatusCode::INTERNAL_SERVER_ERROR
-            };
-
-            return status.into_response();
+            warn!("cannot read {}: {error}", book.path.display());
+            return StatusCode::NOT_FOUND.into_response();
         }
     };
 
-    if response.status().is_success() {
-        let content_type = match book.format() {
-            "KEPUB" => "application/x-kobo-epub+zip",
-            _ => "application/epub+zip",
-        };
-        response
-            .headers_mut()
-            .insert(header::CONTENT_TYPE, HeaderValue::from_static(content_type));
-    }
+    let content_type = match book.format() {
+        "KEPUB" => "application/x-kobo-epub+zip",
+        _ => "application/epub+zip",
+    };
 
-    response.into_response()
+    (
+        [
+            (
+                header::CONTENT_TYPE,
+                HeaderValue::from_static(content_type),
+            ),
+            (
+                header::CONTENT_LENGTH,
+                HeaderValue::from_str(&data.len().to_string())
+                    .unwrap_or_else(|_| HeaderValue::from_static("0")),
+            ),
+        ],
+        data,
+    )
+        .into_response()
 }
