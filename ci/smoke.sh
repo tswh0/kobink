@@ -126,6 +126,11 @@ else
     fail "--health exited non-zero while the server was up"
 fi
 
+version=$("$BIN" --version)
+[[ $version =~ ^kobink\ [0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "version: unexpected '$version'"
+say "version" "$version"
+grep -q "says hello" "$LOG" || fail "startup log has no hello line"
+
 section "auth"
 check "root" "$(status "$BASE/")" 200
 check "without key" "$(status "$BASE/kobo/v1/user/profile")" 404
