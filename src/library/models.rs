@@ -58,21 +58,15 @@ impl Book {
     }
 
     pub fn formats(&self) -> &'static [&'static str] {
-        if self.fixed_layout {
-            &["EPUB3FL"]
-        } else {
-            match self.format() {
-                "KEPUB" => &["KEPUB"],
-                _ => &["EPUB3", "EPUB"],
-            }
+        match (self.fixed_layout, self.is_kepub) {
+            (true, _) => &["EPUB3FL"],
+            (false, true) => &["KEPUB"],
+            (false, false) => &["EPUB3", "EPUB"],
         }
     }
 
     pub fn filename(&self) -> String {
-        self.path
-            .file_name()
-            .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_default()
+        file_name(&self.path)
     }
 
     pub fn download_urls(&self) -> Vec<DownloadUrl> {
@@ -223,23 +217,11 @@ fn read_book(path: &Path, size: u64, modified: Option<SystemTime>) -> Option<Boo
     };
 
     let title = epub.get_title().unwrap_or_else(|| "Untitled".to_string());
-    let author = epub
-        .mdata("creator")
-        .map(|item| item.value.clone())
-        .unwrap_or_else(|| "Unknown author".to_string());
-    let description = epub
-        .mdata("description")
-        .map(|item| item.value.clone())
-        .unwrap_or_default();
+    let author = meta(&epub, "creator").unwrap_or_else(|| "Unknown author".to_string());
+    let description = meta(&epub, "description").unwrap_or_default();
+    let fixed_layout = meta(&epub, "rendition:layout").is_some_and(|value| value == "pre-paginated");
 
-    let fixed_layout = epub
-        .mdata("rendition:layout")
-        .is_some_and(|item| item.value.trim() == "pre-paginated");
-
-    let filename = path
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_default();
+    let filename = file_name(path);
     let id = book_id(&format!("{title}|{author}|{filename}"));
     let series = series_of(&epub).or_else(|| series_from_title(&title));
 
@@ -257,14 +239,25 @@ fn read_book(path: &Path, size: u64, modified: Option<SystemTime>) -> Option<Boo
     })
 }
 
+fn file_name(path: &Path) -> String {
+    path.file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default()
+}
+
+fn meta<R: std::io::Read + std::io::Seek>(epub: &EpubDoc<R>, key: &str) -> Option<String> {
+    epub.mdata(key)
+        .map(|item| item.value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
 fn series_of<R: std::io::Read + std::io::Seek>(epub: &EpubDoc<R>) -> Option<BookSeries> {
-    if let Some(item) = epub.mdata("calibre:series") {
-        let number = epub
-            .mdata("calibre:series_index")
-            .and_then(|index| index.value.trim().parse::<f64>().ok())
+    if let Some(name) = meta(epub, "calibre:series") {
+        let number = meta(epub, "calibre:series_index")
+            .and_then(|index| index.parse::<f64>().ok())
             .unwrap_or(1.0);
 
-        if let Some(series) = BookSeries::new(&item.value, number) {
+        if let Some(series) = BookSeries::new(&name, number) {
             return Some(series);
         }
     }
@@ -324,7 +317,10 @@ fn series_from_title(title: &str) -> Option<BookSeries> {
             continue;
         }
 
-        let number = digits.parse::<f64>().ok()?;
+        let Ok(number) = digits.parse::<f64>() else {
+            continue;
+        };
+
         return BookSeries::new(name, number);
     }
 
