@@ -55,10 +55,11 @@ appends `/v1` itself. Press Sync afterwards.
 - Volumes arrive as a series with the right numbering. The name comes from the book's metadata,
   or from the title if the book has none (`Fire Punch v03`).
 - A sync with nothing new costs a few kilobytes.
-- A drop page at `/<key>/drop` takes books from the browser. EPUB goes in as it is, CBZ and PDF are
-  converted for your e-reader first, and you can drop a whole stack at once — one progress bar, one
-  line of feedback per file. The folder must be mounted read-write (`LIBRARY_WRITE=:rw` in `.env`);
-  otherwise the page tells you so.
+- A drop page lives at the root of the server: open it, type the API key once, and it stays unlocked
+  in that browser for a month. EPUB goes in as it is, CBZ and PDF are converted for your e-reader
+  first, and you can drop a whole stack at once — one progress bar, one line of feedback per file.
+  `/<key>/drop` still works if you would rather keep the key in the URL. The folder must be mounted
+  read-write (`LIBRARY_WRITE=:rw` in `.env`); otherwise the page tells you so.
 - Conversion needs [KCC](https://github.com/ciromattia/kcc) in the image:
   `KOBINK_TARGET=conversion docker compose build` gives you one at around 300 MB instead of 2 MB,
   with the e-readers to pick from. The plain image takes EPUB only, and says so on the page instead

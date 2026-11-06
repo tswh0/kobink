@@ -2,33 +2,47 @@ mod kcc;
 
 use std::{
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
-    time::{SystemTime, UNIX_EPOCH},
+    sync::{Arc, Mutex, OnceLock},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use axum::{
     body::Bytes,
-    extract::{DefaultBodyLimit, Multipart, Query, State},
-    http::header,
+    extract::{DefaultBodyLimit, Form, Multipart, Query, State},
+    http::{header, HeaderMap},
     response::{Html, IntoResponse, Redirect, Response},
     routing::{get, post},
     Router,
 };
 use serde::Deserialize;
 use tracing::{info, warn};
+use uuid::Uuid;
 
 use crate::{
-    auth::api_key,
+    auth::{api_key, public_base},
     library::models::{refresh, LibraryState},
 };
 
 const PAGE: &str = include_str!("drop.html");
-const STYLE: &str = include_str!("oat.min.css");
+const LOGIN: &str = include_str!("login.html");
+const STYLE_SHEET: &str = include_str!("oat.min.css");
+const ICON: &[u8] = include_bytes!("favicon.ico");
+const ICON_SMALL: &[u8] = include_bytes!("favicon-32.png");
+const ICON_TOUCH: &[u8] = include_bytes!("apple-touch-icon.png");
+
 const MAX_UPLOAD: usize = 512 * 1024 * 1024;
+const COOKIE: &str = "kobink";
+const COOKIE_AGE: u32 = 30 * 24 * 60 * 60;
+const LAZY_ANSWER: Duration = Duration::from_millis(400);
 
 #[derive(Deserialize)]
 struct Status {
     status: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct Credentials {
+    key: String,
 }
 
 enum Kind {
@@ -38,30 +52,78 @@ enum Kind {
 
 pub fn create_drop_router(prefix: &str) -> Router<Arc<Mutex<LibraryState>>> {
     Router::new()
+        .route("/", get(root).post(login))
+        .route("/upload", post(upload))
+        .route("/style.css", get(style))
+        .route("/favicon.ico", get(icon))
+        .route("/favicon-32.png", get(icon_small))
+        .route("/apple-touch-icon.png", get(icon_touch))
         .route(&format!("{prefix}/drop"), get(page))
-        .route(&format!("{prefix}/drop/style.css"), get(style))
-        .route(&format!("{prefix}/drop/upload"), post(upload))
+        .route(&format!("{prefix}/drop/upload"), post(page_upload))
         .layer(DefaultBodyLimit::max(MAX_UPLOAD))
 }
 
-async fn page(Query(status): Query<Status>) -> Html<String> {
-    Html(render(status.status.as_deref()))
+async fn root(headers: HeaderMap, Query(status): Query<Status>) -> Response {
+    if !authorised(&headers) {
+        return Html(login_page(status.status.as_deref())).into_response();
+    }
+
+    Html(render("/upload", status.status.as_deref())).into_response()
 }
 
-async fn style() -> Response {
-    (
-        [
-            (header::CONTENT_TYPE, "text/css; charset=utf-8"),
-            (header::CACHE_CONTROL, "public, max-age=31536000, immutable"),
-        ],
-        STYLE,
-    )
-        .into_response()
+async fn page(Query(status): Query<Status>) -> Html<String> {
+    Html(render(
+        &format!("/{}/drop/upload", api_key()),
+        status.status.as_deref(),
+    ))
+}
+
+async fn login(Form(credentials): Form<Credentials>) -> Response {
+    if !equal(credentials.key.trim(), api_key()) {
+        tokio::time::sleep(LAZY_ANSWER).await;
+        warn!("drop page: wrong key");
+
+        return Redirect::to("/?status=bad").into_response();
+    }
+
+    info!("drop page unlocked");
+
+    let cookie = format!(
+        "{COOKIE}={}; Path=/; HttpOnly; SameSite=Strict; Max-Age={COOKIE_AGE}{}",
+        session(),
+        if public_base().starts_with("https://") {
+            "; Secure"
+        } else {
+            ""
+        }
+    );
+
+    ([(header::SET_COOKIE, cookie)], Redirect::to("/")).into_response()
 }
 
 async fn upload(
     State(library): State<Arc<Mutex<LibraryState>>>,
+    headers: HeaderMap,
+    multipart: Multipart,
+) -> Response {
+    if !authorised(&headers) {
+        return Redirect::to("/").into_response();
+    }
+
+    receive(library, multipart, "/").await
+}
+
+async fn page_upload(
+    State(library): State<Arc<Mutex<LibraryState>>>,
+    multipart: Multipart,
+) -> Response {
+    receive(library, multipart, &format!("/{}/drop", api_key())).await
+}
+
+async fn receive(
+    library: Arc<Mutex<LibraryState>>,
     mut multipart: Multipart,
+    back: &str,
 ) -> Response {
     let library_path = {
         let library = library
@@ -96,11 +158,11 @@ async fn upload(
     }
 
     if interrupted {
-        return redirect(&["read"]);
+        return redirect(back, &["read"]);
     }
 
     if files.is_empty() {
-        return redirect(&["empty"]);
+        return redirect(back, &["empty"]);
     }
 
     let mut codes = Vec::with_capacity(files.len());
@@ -110,7 +172,7 @@ async fn upload(
     }
 
     refresh(library).await;
-    redirect(&codes)
+    redirect(back, &codes)
 }
 
 async fn store(library_path: &str, raw_name: String, data: Bytes, profile: &str) -> &'static str {
@@ -213,8 +275,64 @@ fn write_failure(target: &Path, error: &std::io::Error) -> &'static str {
     }
 }
 
-fn redirect(codes: &[&str]) -> Response {
-    Redirect::to(&format!("/{}/drop?status={}", api_key(), codes.join(","))).into_response()
+fn redirect(back: &str, codes: &[&str]) -> Response {
+    Redirect::to(&format!("{back}?status={}", codes.join(","))).into_response()
+}
+
+fn session() -> &'static str {
+    static SESSION: OnceLock<String> = OnceLock::new();
+
+    SESSION.get_or_init(|| format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple()))
+}
+
+fn authorised(headers: &HeaderMap) -> bool {
+    headers
+        .get_all(header::COOKIE)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .flat_map(|value| value.split(';'))
+        .filter_map(|pair| pair.split_once('='))
+        .any(|(name, value)| name.trim() == COOKIE && equal(value.trim(), session()))
+}
+
+fn equal(left: &str, right: &str) -> bool {
+    let (left, right) = (left.as_bytes(), right.as_bytes());
+
+    if left.len() != right.len() {
+        return false;
+    }
+
+    left.iter()
+        .zip(right)
+        .fold(0u8, |difference, (a, b)| difference | (a ^ b))
+        == 0
+}
+
+async fn style() -> Response {
+    asset(STYLE_SHEET.as_bytes(), "text/css; charset=utf-8")
+}
+
+async fn icon() -> Response {
+    asset(ICON, "image/x-icon")
+}
+
+async fn icon_small() -> Response {
+    asset(ICON_SMALL, "image/png")
+}
+
+async fn icon_touch() -> Response {
+    asset(ICON_TOUCH, "image/png")
+}
+
+fn asset(bytes: &'static [u8], content_type: &'static str) -> Response {
+    (
+        [
+            (header::CONTENT_TYPE, content_type),
+            (header::CACHE_CONTROL, "public, max-age=31536000, immutable"),
+        ],
+        bytes,
+    )
+        .into_response()
 }
 
 fn work_dir() -> PathBuf {
@@ -401,15 +519,26 @@ fn message(code: &str) -> Option<(&'static str, &'static str)> {
     }
 }
 
-fn render(status: Option<&str>) -> String {
-    let notices = status
+fn notices(status: Option<&str>) -> String {
+    status
         .unwrap_or_default()
         .split(',')
         .filter_map(|code| message(code.trim()))
         .map(|(tone, text)| format!("<p class=\"notice {tone}\">{text}</p>"))
-        .collect::<String>();
+        .collect()
+}
 
-    PAGE.replace("{{BASE}}", &format!("/{}", api_key()))
+fn render(action: &str, status: Option<&str>) -> String {
+    PAGE.replace("{{ACTION}}", action)
         .replace("{{CONTROLS}}", &controls())
-        .replace("{{NOTICE}}", &notices)
+        .replace("{{NOTICE}}", &notices(status))
+}
+
+fn login_page(status: Option<&str>) -> String {
+    let notice = match status {
+        Some("bad") => "<p class=\"notice\">That key does not match.</p>",
+        _ => "",
+    };
+
+    LOGIN.replace("{{NOTICE}}", notice)
 }

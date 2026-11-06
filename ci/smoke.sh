@@ -238,7 +238,7 @@ say "image template" "$template"
 section "drop"
 check "drop page" "$(status "$(api /drop)")" 200
 check "drop without key" "$(status "$BASE/drop")" 404
-check "drop stylesheet" "$(status "$(api /drop/style.css)")" 200
+check "stylesheet" "$(status "$BASE/style.css")" 200
 check "multiple files" "$(curl -s "$(api /drop)" | grep -c 'name="file" accept="[^"]*" multiple')" 1
 
 cp "$LIB/BLAME!/BLAME! Master Edition v01.kepub.epub" "$WORK/drop-test.kepub.epub"
@@ -253,6 +253,28 @@ printf 'not a book' > "$WORK/notes.txt"
 body=$(curl -s -L -F "file=@$WORK/notes.txt" "$(api /drop/upload)")
 [[ $body == *"Only .epub, .cbz and .pdf"* ]] || fail "a txt file was accepted"
 
+rm -f "$LIB/drop-test.kepub.epub"
+
+section "root"
+check "root offers the key" "$(status "$BASE/")" 200
+curl -s "$BASE/" | grep -q 'name="key"' || fail "root did not ask for the key"
+[[ $(curl -s "$BASE/") == *'name="file"'* ]] && fail "root showed the upload without a key"
+curl -s "$BASE/?status=bad" | grep -q "does not match" || fail "a wrong key was not explained"
+check "favicon" "$(status "$BASE/favicon.ico")" 200
+check "favicon type" "$(header content-type "$BASE/favicon.ico")" image/x-icon
+
+jar=$WORK/jar.txt
+check "wrong key" "$(curl -s -o /dev/null -w '%{http_code}' -c "$jar" -d "key=wrong" "$BASE/")" 303
+[[ $(curl -s -b "$jar" "$BASE/") == *'name="file"'* ]] && fail "a wrong key unlocked the page"
+
+check "right key" "$(curl -s -o /dev/null -w '%{http_code}' -c "$jar" -d "key=$KEY" "$BASE/")" 303
+curl -s -b "$jar" "$BASE/" | grep -q 'name="file"' || fail "the right key did not unlock the page"
+
+check "upload without a cookie" "$(status -X POST -F "file=@$WORK/drop-test.kepub.epub" "$BASE/upload")" 303
+
+body=$(curl -s -L -b "$jar" -F "file=@$WORK/drop-test.kepub.epub" "$BASE/upload")
+[[ $body == *"Book added"* ]] || fail "a cookie upload did not confirm"
+json "books after root upload" "$(curl -s "$(api /kobo/v1/library/sync)")" 'length' 6
 rm -f "$LIB/drop-test.kepub.epub"
 
 section "batch"
