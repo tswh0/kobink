@@ -35,10 +35,13 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: musl target
+        run: rustup target add x86_64-unknown-linux-musl
+
       - name: build
         run: |
           set +e
-          cargo build --release --locked 2>&1 | tee build.log
+          cargo build --release --locked --target x86_64-unknown-linux-musl 2>&1 | tee build.log
           status=${PIPESTATUS[0]}
           if [ "$status" -ne 0 ]; then
             grep -E "^error" -A5 build.log | head -50 | tr -d '\r' | sed 's/%/%25/g' | while IFS= read -r line; do
@@ -49,6 +52,7 @@ jobs:
 
       - name: kobo protocol smoke test
         env:
+          BIN: target/x86_64-unknown-linux-musl/release/kobink
           API_KEY: smoketestkey123
           LIBRARY_PATH: /tmp/library
           PUBLIC_URL: http://127.0.0.1:3000
