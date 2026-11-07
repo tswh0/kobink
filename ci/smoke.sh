@@ -74,6 +74,13 @@ header() {
         awk -v key="$name" 'tolower($1) == (key ":") { print $2 }'
 }
 
+header_value() {
+    local name=$1 url=$2
+    shift 2
+    curl -s -o /dev/null -D - "$@" "$url" | tr -d '\r' |
+        awk -v key="$name" 'tolower($1) == (key ":") { $1 = ""; sub(/^ /, ""); print; exit }'
+}
+
 dims() {
     python3 - "$1" <<'PY'
 import struct
@@ -222,6 +229,8 @@ check "covers cached" "$(find "$COVERS" -type f | wc -l | tr -d ' ')" 3
 section "downloads"
 check "download" "$(status "$url")" 200
 check "download type" "$(header content-type "$url")" application/x-kobo-epub+zip
+check "download disposition" "$(header_value content-disposition "$url")" 'attachment; filename="BLAME!_Master_Edition_v01.kepub.epub"' 
+check "download nosniff" "$(header x-content-type-options "$url")" nosniff
 
 grab epub_url "$babel" '.NewEntitlement.BookMetadata.DownloadUrls[0].Url'
 check "epub download" "$(status "$epub_url")" 200
@@ -260,6 +269,12 @@ curl -s "$BASE/" | grep -q 'name="key"' || fail "root did not ask for the key"
 [[ $(curl -s "$BASE/") == *'name="file"'* ]] && fail "root showed the upload without a key"
 curl -s "$BASE/?status=bad" | grep -q "does not match" || fail "a wrong key was not explained"
 check "favicon" "$(status "$BASE/favicon.ico")" 200
+check "page style" "$(status "$BASE/page.css")" 200
+check "page script" "$(status "$BASE/app.js")" 200
+check "nosniff" "$(header x-content-type-options "$BASE/")" nosniff
+check "csp" "$(header_value content-security-policy "$BASE/" | cut -c1-21)" "default-src 'none'; s"
+curl -s "$BASE/app.js" | grep -q "XMLHttpRequest" || fail "app.js is not the upload script"
+curl -s "$BASE/" | grep -q '</style>' && fail "the login page still carries inline style"
 check "favicon type" "$(header content-type "$BASE/favicon.ico")" image/x-icon
 
 jar=$WORK/jar.txt

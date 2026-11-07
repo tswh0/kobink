@@ -1,4 +1,8 @@
-use axum::{http::StatusCode, middleware, Router};
+use axum::{
+    http::{header, HeaderValue, StatusCode},
+    middleware,
+    Router,
+};
 
 mod logging;
 use crate::{
@@ -42,6 +46,7 @@ pub async fn start_server() {
         .merge(kobo::covers::create_cover_router(&format!("/{api_key}")))
         .merge(drop::create_drop_router(&format!("/{api_key}")))
         .fallback(not_found)
+        .layer(middleware::from_fn(security_headers))
         .layer(middleware::from_fn(logging::log_request_response))
         .with_state(Arc::clone(&arcref));
 
@@ -84,6 +89,30 @@ fn spawn_library_refresh(library: Arc<Mutex<LibraryState>>) {
     });
 
     info!("library refresh every {}s", interval_seconds);
+}
+
+async fn security_headers(request: axum::extract::Request, next: middleware::Next) -> axum::response::Response {
+    let mut response = next.run(request).await;
+    let headers = response.headers_mut();
+
+    headers.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    headers.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
+    headers.insert(
+        header::REFERRER_POLICY,
+        HeaderValue::from_static("no-referrer"),
+    );
+    headers.insert(
+        header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static(
+            "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; \
+             connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+        ),
+    );
+
+    response
 }
 
 async fn not_found(uri: axum::http::Uri) -> (StatusCode, String) {

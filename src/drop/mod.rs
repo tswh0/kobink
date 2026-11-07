@@ -1,20 +1,21 @@
 mod kcc;
 
 use std::{
+    io,
     path::{Path, PathBuf},
     sync::{Arc, Mutex, OnceLock},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use axum::{
-    body::Bytes,
-    extract::{DefaultBodyLimit, Form, Multipart, Query, State},
+    extract::{multipart::Field, DefaultBodyLimit, Form, Multipart, Query, State},
     http::{header, HeaderMap},
     response::{Html, IntoResponse, Redirect, Response},
     routing::{get, post},
     Router,
 };
 use serde::Deserialize;
+use tokio::{io::AsyncWriteExt, sync::Semaphore};
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -26,6 +27,8 @@ use crate::{
 const PAGE: &str = include_str!("drop.html");
 const LOGIN: &str = include_str!("login.html");
 const STYLE_SHEET: &str = include_str!("oat.min.css");
+const PAGE_STYLE: &str = include_str!("page.css");
+const APP_JS: &str = include_str!("app.js");
 const ICON: &[u8] = include_bytes!("favicon.ico");
 const ICON_SMALL: &[u8] = include_bytes!("favicon-32.png");
 const ICON_TOUCH: &[u8] = include_bytes!("apple-touch-icon.png");
@@ -34,6 +37,7 @@ const MAX_UPLOAD: usize = 512 * 1024 * 1024;
 const COOKIE: &str = "kobink";
 const COOKIE_AGE: u32 = 30 * 24 * 60 * 60;
 const LAZY_ANSWER: Duration = Duration::from_millis(400);
+const DEFAULT_JOBS: usize = 2;
 
 #[derive(Deserialize)]
 struct Status {
@@ -50,11 +54,19 @@ enum Kind {
     Manga,
 }
 
+struct Part {
+    name: String,
+    path: PathBuf,
+    size: u64,
+}
+
 pub fn create_drop_router(prefix: &str) -> Router<Arc<Mutex<LibraryState>>> {
     Router::new()
         .route("/", get(root).post(login))
         .route("/upload", post(upload))
         .route("/style.css", get(style))
+        .route("/page.css", get(page_style))
+        .route("/app.js", get(app_js))
         .route("/favicon.ico", get(icon))
         .route("/favicon-32.png", get(icon_small))
         .route("/apple-touch-icon.png", get(icon_touch))
@@ -132,7 +144,14 @@ async fn receive(
         library.path.clone()
     };
 
-    let mut files: Vec<(String, Bytes)> = Vec::new();
+    let work = work_dir();
+
+    if let Err(error) = tokio::fs::create_dir_all(&work).await {
+        warn!("cannot create {}: {error}", work.display());
+        return redirect(back, &["write"]);
+    }
+
+    let mut parts: Vec<Part> = Vec::new();
     let mut profile = kcc::DEFAULT_PROFILE.to_string();
     let mut interrupted = false;
 
@@ -143,10 +162,17 @@ async fn receive(
             "profile" => profile = field.text().await.unwrap_or_default(),
             "file" => {
                 let file_name = field.file_name().unwrap_or_default().to_string();
+                let path = work.join(format!("part-{}", parts.len()));
 
-                match field.bytes().await {
-                    Ok(data) if !data.is_empty() => files.push((file_name, data)),
-                    Ok(_) => {}
+                match save(field, &path).await {
+                    Ok(0) => {
+                        let _ = tokio::fs::remove_file(&path).await;
+                    }
+                    Ok(size) => parts.push(Part {
+                        name: file_name,
+                        path,
+                        size,
+                    }),
                     Err(error) => {
                         warn!("upload interrupted while reading {file_name}: {error}");
                         interrupted = true;
@@ -158,25 +184,28 @@ async fn receive(
     }
 
     if interrupted {
+        let _ = tokio::fs::remove_dir_all(&work).await;
         return redirect(back, &["read"]);
     }
 
-    if files.is_empty() {
+    if parts.is_empty() {
+        let _ = tokio::fs::remove_dir_all(&work).await;
         return redirect(back, &["empty"]);
     }
 
-    let mut codes = Vec::with_capacity(files.len());
+    let mut codes = Vec::with_capacity(parts.len());
 
-    for (raw_name, data) in files {
-        codes.push(store(&library_path, raw_name, data, &profile).await);
+    for part in parts {
+        codes.push(store(&library_path, &work, part, &profile).await);
     }
 
+    let _ = tokio::fs::remove_dir_all(&work).await;
     refresh(library).await;
     redirect(back, &codes)
 }
 
-async fn store(library_path: &str, raw_name: String, data: Bytes, profile: &str) -> &'static str {
-    let Some(name) = safe_name(&raw_name) else {
+async fn store(library_path: &str, work: &Path, part: Part, profile: &str) -> &'static str {
+    let Some(name) = safe_name(&part.name) else {
         return "format";
     };
 
@@ -184,9 +213,9 @@ async fn store(library_path: &str, raw_name: String, data: Bytes, profile: &str)
         Some(Kind::Book) => {
             let target = unique(library_path, &name);
 
-            match tokio::fs::write(&target, &data).await {
-                Ok(()) => {
-                    info!("dropped {} ({} bytes)", target.display(), data.len());
+            match tokio::fs::copy(&part.path, &target).await {
+                Ok(_) => {
+                    info!("dropped {} ({} bytes)", target.display(), part.size);
                     "ok"
                 }
                 Err(error) => write_failure(&target, &error),
@@ -201,43 +230,38 @@ async fn store(library_path: &str, raw_name: String, data: Bytes, profile: &str)
                 return "profile";
             }
 
-            convert(library_path, name, data, profile).await
+            convert(library_path, work, &part.path, &name, profile).await
         }
         None => "format",
     }
 }
 
-async fn convert(library_path: &str, name: String, data: Bytes, profile: &str) -> &'static str {
+async fn convert(
+    library_path: &str,
+    work: &Path,
+    input: &Path,
+    name: &str,
+    profile: &str,
+) -> &'static str {
     let suffix = kcc::extension(profile);
-    let work = work_dir();
-    let input = work.join(&name);
-    let title = clean_title(&stem(&name));
+    let title = clean_title(&stem(name));
     let output = work.join(format!("{title}{suffix}"));
 
-    if let Err(error) = tokio::fs::create_dir_all(&work).await {
-        warn!("cannot create {}: {error}", work.display());
-        return "write";
-    }
-
-    if let Err(error) = tokio::fs::write(&input, &data).await {
-        let _ = tokio::fs::remove_dir_all(&work).await;
-        warn!("cannot write {}: {error}", input.display());
-
-        return "write";
-    }
-
-    let author = kcc::author(&series(&title), &input).await;
+    let author = kcc::author(&series(&title), input).await;
 
     if let Some(author) = author.as_deref() {
         info!("{name}: author {author}");
     }
 
-    let converted = kcc::convert(&input, &output, profile, &title, author.as_deref()).await;
-    let _ = tokio::fs::remove_file(&input).await;
+    let Ok(permit) = jobs().acquire().await else {
+        return "write";
+    };
+
+    let converted = kcc::convert(input, &output, profile, &title, author.as_deref()).await;
+    drop(permit);
 
     if let Err(error) = converted {
         warn!("{name}: {error}");
-        let _ = tokio::fs::remove_dir_all(&work).await;
 
         return if error.contains("timed out") {
             "timeout"
@@ -247,15 +271,11 @@ async fn convert(library_path: &str, name: String, data: Bytes, profile: &str) -
     }
 
     let target = unique(library_path, &format!("{title}{suffix}"));
-    let copied = tokio::fs::copy(&output, &target).await;
 
-    let _ = tokio::fs::remove_dir_all(&work).await;
-
-    match copied {
+    match tokio::fs::copy(&output, &target).await {
         Ok(bytes) => {
             info!(
-                "converted {} -> {} ({bytes} bytes, profile {profile})",
-                name,
+                "converted {name} -> {} ({bytes} bytes, profile {profile})",
                 target.display()
             );
 
@@ -285,6 +305,20 @@ fn session() -> &'static str {
     SESSION.get_or_init(|| format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple()))
 }
 
+fn jobs() -> &'static Semaphore {
+    static JOBS: OnceLock<Semaphore> = OnceLock::new();
+
+    JOBS.get_or_init(|| {
+        let permits = std::env::var("KCC_JOBS")
+            .ok()
+            .and_then(|value| value.trim().parse::<usize>().ok())
+            .filter(|value| *value > 0)
+            .unwrap_or(DEFAULT_JOBS);
+
+        Semaphore::new(permits)
+    })
+}
+
 fn authorised(headers: &HeaderMap) -> bool {
     headers
         .get_all(header::COOKIE)
@@ -312,6 +346,14 @@ async fn style() -> Response {
     asset(STYLE_SHEET.as_bytes(), "text/css; charset=utf-8")
 }
 
+async fn page_style() -> Response {
+    asset(PAGE_STYLE.as_bytes(), "text/css; charset=utf-8")
+}
+
+async fn app_js() -> Response {
+    asset(APP_JS.as_bytes(), "text/javascript; charset=utf-8")
+}
+
 async fn icon() -> Response {
     asset(ICON, "image/x-icon")
 }
@@ -333,6 +375,23 @@ fn asset(bytes: &'static [u8], content_type: &'static str) -> Response {
         bytes,
     )
         .into_response()
+}
+
+async fn save(mut field: Field<'_>, path: &Path) -> io::Result<u64> {
+    let mut file = tokio::fs::File::create(path).await?;
+    let mut size = 0u64;
+
+    while let Some(chunk) = field
+        .chunk()
+        .await
+        .map_err(|error| io::Error::other(error.to_string()))?
+    {
+        file.write_all(&chunk).await?;
+        size += chunk.len() as u64;
+    }
+
+    file.flush().await?;
+    Ok(size)
 }
 
 fn work_dir() -> PathBuf {

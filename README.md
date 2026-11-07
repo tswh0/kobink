@@ -26,6 +26,11 @@ services:
   kobink:
     image: ghcr.io/tswh0/kobink:latest
     restart: unless-stopped
+    user: "1000:1000"
+    read_only: true
+    tmpfs: ["/tmp"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
     ports: ["3000:3000"]
     environment:
       PUBLIC_URL: http://192.168.1.10:3000
@@ -36,6 +41,12 @@ services:
 
 `PUBLIC_URL` has to be the address the reader can reach, because it ends up inside every download
 link. If the device can open it in a browser, it is right.
+
+The container runs unprivileged with a read-only root, so `./data` has to belong to that user once:
+
+```bash
+sudo chown -R 1000:1000 ./data
+```
 
 Then edit `.kobo/Kobo/Kobo eReader.conf` on the Kobo:
 

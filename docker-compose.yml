@@ -7,6 +7,16 @@ services:
     pull_policy: missing
     container_name: kobink
     restart: unless-stopped
+    user: "${KOBINK_UID:-1000}:${KOBINK_GID:-1000}"
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: ${KOBINK_MEMORY:-2g}
     ports:
       - "${KOBINK_PORT:-3000}:3000"
     environment:
