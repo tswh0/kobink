@@ -14,12 +14,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
+        platform:
           - runner: ubuntu-latest
             platform: linux/amd64
           - runner: ubuntu-24.04-arm
             platform: linux/arm64
-    runs-on: ${{ matrix.runner }}
+        target: [runtime, conversion]
+    runs-on: ${{ matrix.platform.runner }}
     permissions:
       contents: read
       packages: write
@@ -41,13 +42,14 @@ jobs:
         run: |
           set +e
           docker buildx build \
-            --platform "${{ matrix.platform }}" \
+            --platform "${{ matrix.platform.platform }}" \
+            --target "${{ matrix.target }}" \
             --label "org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}" \
             --label "org.opencontainers.image.revision=${{ github.sha }}" \
             --provenance=mode=max \
             --sbom=true \
-            --cache-from "type=gha,scope=${{ matrix.platform }}" \
-            --cache-to "type=gha,mode=max,scope=${{ matrix.platform }}" \
+            --cache-from "type=gha,scope=${{ matrix.target }}-${{ matrix.platform.platform }}" \
+            --cache-to "type=gha,mode=max,scope=${{ matrix.target }}-${{ matrix.platform.platform }}" \
             --metadata-file metadata.json \
             --output "type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true" \
             . 2>&1 | tee build.log
@@ -70,12 +72,22 @@ jobs:
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: digest-${{ strategy.job-index }}
+          name: digest-${{ matrix.target }}-${{ strategy.job-index }}
           path: /tmp/digests/*
           retention-days: 1
 
   merge:
     needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: runtime
+            suffix: ""
+            stable: latest
+          - target: conversion
+            suffix: "-conversion"
+            stable: conversion
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -84,7 +96,7 @@ jobs:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           path: /tmp/digests
-          pattern: digest-*
+          pattern: digest-${{ matrix.target }}-*
           merge-multiple: true
 
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
@@ -100,11 +112,10 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-            type=sha,format=short
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=semver,pattern={{version}}${{ matrix.suffix }}
+            type=semver,pattern={{major}}.{{minor}}${{ matrix.suffix }}
+            type=raw,value=${{ matrix.stable }},enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=sha,format=short,enable=${{ matrix.suffix == '' }}
 
       - name: publish manifest
         run: |
@@ -114,4 +125,4 @@ jobs:
             $(printf '${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@sha256:%s ' *)
 
       - name: inspect
-        run: docker buildx imagetools inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}
+        run: docker buildx imagetools inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}${{ matrix.suffix }}

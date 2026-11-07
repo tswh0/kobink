@@ -59,8 +59,8 @@ appends `/v1` itself. Press Sync afterwards.
   or from the title if the book has none (`Fire Punch v03`).
 - A sync with nothing new costs a few kilobytes.
 - A drop page at the root takes EPUB, CBZ and PDF from the browser, several at once. CBZ and PDF are
-  converted for your e-reader, which needs `LIBRARY_WRITE=:rw` and an image built with
-  `KOBINK_TARGET=conversion` (~400 MB, adds [KCC](https://github.com/ciromattia/kcc)).
+  converted for your e-reader, which needs `LIBRARY_WRITE=:rw` and `ghcr.io/tswh0/kobink:conversion`
+  (~400 MB) or a local `KOBINK_TARGET=conversion` build; plain `latest` takes EPUB only.
 - The folder is read again every ten minutes. Drop a file in, wait, sync.
 - No database. One container, two folders.
 
