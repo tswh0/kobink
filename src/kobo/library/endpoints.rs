@@ -72,7 +72,7 @@ async fn handle_delete(
 
     let Some(path) = found else {
         debug!("delete for unknown book {book_id}");
-        return StatusCode::NO_CONTENT;
+        return StatusCode::NO_CONTENT.into_response();
     };
 
     match retire(&library_path, &path).await {
@@ -80,12 +80,12 @@ async fn handle_delete(
         Ok(Some(target)) => info!("deleted on device: {} -> {}", path.display(), target.display()),
         Err(error) => {
             warn!("cannot delete {}: {error}", path.display());
-            return StatusCode::INTERNAL_SERVER_ERROR;
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     }
 
     refresh(library).await;
-    StatusCode::NO_CONTENT
+    StatusCode::NO_CONTENT.into_response()
 }
 
 async fn stub() -> StatusCode {
