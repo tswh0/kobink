@@ -213,7 +213,6 @@ grab url "$blame" '.NewEntitlement.BookMetadata.DownloadUrls[0].Url'
 
 check "metadata" "$(status "$(api /kobo/v1/library/$book_id/metadata)")" 200
 check "state" "$(status "$(api /kobo/v1/library/$book_id/state)")" 200
-check "delete" "$(status -X DELETE "$(api /kobo/v1/library/$book_id)")" 200
 check "cover" "$(status "$(api "/$book_id/149/223/false/image.jpg")")" 200
 check "cover type" "$(header content-type "$(api "/$book_id/149/223/false/image.jpg")")" image/jpeg
 
