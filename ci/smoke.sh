@@ -220,6 +220,16 @@ json "nextread without series" "$(curl -s "$(api "/kobo/v1/products/$babel_id/ne
 
 json "profile name" "$(curl -s "$(api /kobo/v1/user/profile)")" '.UserProfile.DisplayName' "kobink"
 
+json "product" "$(curl -s "$(api "/kobo/v1/products/$blame_one")")" '.Title' "BLAME! Master Edition v01"
+json "featured product" "$(curl -s "$(api "/kobo/v1/products/featured/$blame_one")")" '.Title' "BLAME! Master Edition v01"
+json "related" "$(curl -s "$(api "/kobo/v1/products/$blame_one/recommendations")")" 'length' 2
+json "related next" "$(curl -s "$(api "/kobo/v1/products/$blame_one/recommendations")")" '.[0].Series.Number == 2' true
+json "dailydeal" "$(curl -s "$(api /kobo/v1/products/dailydeal)")" '.Title | type' string
+categories=$(curl -s "$(api /kobo/v1/categories/00000000-0000-0000-0000-000000000001)")
+json "categories" "$categories" 'length' 0
+history=$(curl -s "$(api /kobo/v1/user/browsehistory)")
+json "browsehistory" "$history" 'length' 0
+
 section "transport"
 check "gzip" "$(header content-encoding "$(api /kobo/v1/library/sync)" -H 'Accept-Encoding: gzip')" gzip
 

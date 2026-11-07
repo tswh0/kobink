@@ -31,8 +31,14 @@ pub fn create_kobo_router() -> Router<Arc<Mutex<LibraryState>>> {
         .route("/deals", get(handle_deals))
         .route("/products/featured", get(handle_featured))
         .route("/products/featured/", get(handle_featured))
+        .route("/products/dailydeal", get(handle_dailydeal))
+        .route("/products/featured/{book_id}", get(handle_product))
+        .route("/products/{book_id}", get(handle_product))
         .route("/products/{book_id}/nextread", get(handle_nextread))
+        .route("/products/{book_id}/recommendations", get(handle_related))
         .route("/products/{book_id}/prices", get(stub))
+        .route("/categories/{*_}", get(empty_list))
+        .route("/user/browsehistory", get(empty_list))
         .route("/products/books/series/{series_id}", get(stub))
         .route("/analytics/{*_}", get(stub).post(stub))
         .route("/affiliate", get(stub))
@@ -166,6 +172,56 @@ async fn handle_nextread(
         Some(product) => Json(product),
         None => Json(json!({})),
     }
+}
+
+async fn handle_product(
+    State(library): State<Arc<Mutex<LibraryState>>>,
+    Path(book_id): Path<String>,
+) -> Json<Value> {
+    if disabled() {
+        return Json(json!({}));
+    }
+
+    let books = snapshot(&library);
+
+    match books.iter().find(|book| book.id.to_string() == book_id) {
+        Some(book) => Json(products::product(book)),
+        None => Json(json!({})),
+    }
+}
+
+async fn handle_dailydeal(State(library): State<Arc<Mutex<LibraryState>>>) -> Json<Value> {
+    if disabled() {
+        return Json(json!({}));
+    }
+
+    let books = snapshot(&library);
+
+    match products::waiting(&books, 1).into_iter().next() {
+        Some(product) => Json(product),
+        None => Json(json!({})),
+    }
+}
+
+async fn handle_related(
+    State(library): State<Arc<Mutex<LibraryState>>>,
+    Path(book_id): Path<String>,
+) -> Json<Value> {
+    if disabled() {
+        return Json(json!([]));
+    }
+
+    let books = snapshot(&library);
+    let found = books.iter().find(|book| book.id.to_string() == book_id);
+
+    match found {
+        Some(book) => Json(json!(products::related(&books, book, SHELF))),
+        None => Json(json!([])),
+    }
+}
+
+async fn empty_list() -> Json<Value> {
+    Json(json!([]))
 }
 
 async fn stub() -> (StatusCode, &'static str) {

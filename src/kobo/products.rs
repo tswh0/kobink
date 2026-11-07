@@ -98,3 +98,31 @@ fn next_in_series<'a>(books: &'a [Book], name: &str, after: f64) -> Option<&'a B
 fn rotate(id: u128, day: u64) -> u64 {
     (id as u64 ^ day).wrapping_mul(0x9E37_79B9_7F4A_7C15)
 }
+
+pub fn related(books: &[Book], book: &Book, count: usize) -> Vec<Value> {
+    let mut ranked: Vec<&Book> = books
+        .iter()
+        .filter(|candidate| candidate.id != book.id)
+        .filter(|candidate| {
+            match (candidate.series.as_ref(), book.series.as_ref()) {
+                (Some(left), Some(right)) => left.name == right.name,
+                _ => candidate.author == book.author,
+            }
+        })
+        .collect();
+
+    ranked.sort_by(|left, right| {
+        number(left)
+            .total_cmp(&number(right))
+            .then_with(|| left.title.cmp(&right.title))
+    });
+
+    ranked.into_iter().take(count).map(product).collect()
+}
+
+fn number(book: &Book) -> f64 {
+    book.series
+        .as_ref()
+        .map(|series| series.number)
+        .unwrap_or_default()
+}
