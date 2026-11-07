@@ -162,7 +162,9 @@ async fn receive(
             "profile" => profile = field.text().await.unwrap_or_default(),
             "file" => {
                 let file_name = field.file_name().unwrap_or_default().to_string();
-                let path = work.join(format!("part-{}", parts.len()));
+                let index = parts.len();
+                let local = safe_name(&file_name).unwrap_or_else(|| format!("part-{index}"));
+                let path = work.join(format!("{index}-{local}"));
 
                 match save(field, &path).await {
                     Ok(0) => {
