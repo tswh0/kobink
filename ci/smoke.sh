@@ -301,6 +301,24 @@ body=$(curl -s -L -F "file=@$WORK/one.epub" -F "file=@$WORK/two.epub" "$(api /dr
 json "books after batch" "$(curl -s "$(api /kobo/v1/library/sync)")" 'length' 7
 rm -f "$LIB/one.epub" "$LIB/two.epub"
 
+section "delete"
+cp "$LIB/R.F. Kuang/Babel - Rebecca F. Kuang (2022).epub" "$WORK/delete-me.epub"
+body=$(curl -s -L -F "file=@$WORK/delete-me.epub" "$(api /drop/upload)")
+[[ $body == *"Book added"* ]] || fail "the book to delete was not added"
+
+sync=$(curl -s "$(api /kobo/v1/library/sync)")
+json "books before delete" "$sync" 'length' 6
+
+delete_id=$(printf '%s' "$sync" | jq -r '[.[] | select(.NewEntitlement.BookMetadata.DownloadUrls[0].Url | endswith("delete-me.epub"))][0].NewEntitlement.BookEntitlement.Id')
+[ -n "$delete_id" ] && [ "$delete_id" != "null" ] || fail "cannot find the book to delete in the sync payload"
+
+check "delete" "$(status -X DELETE "$(api "/kobo/v1/library/$delete_id")")" 204
+check "delete again" "$(status -X DELETE "$(api "/kobo/v1/library/$delete_id")")" 204
+[ ! -f "$LIB/delete-me.epub" ] || fail "the file is still in the library"
+find "$LIB/.kobink-trash" -name "delete-me.epub" | grep -q . || fail "the file is not in the trash"
+json "books after delete" "$(curl -s "$(api /kobo/v1/library/sync)")" 'length' 5
+check "delete unknown" "$(status -X DELETE "$(api "/kobo/v1/library/00000000-0000-4000-8000-000000000000")")" 204
+
 section "manga"
 check "profile picker" "$(curl -s "$(api /drop)" | grep -c '<select name="profile"')" 1
 

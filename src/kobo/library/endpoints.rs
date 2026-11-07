@@ -9,9 +9,11 @@ use axum::{
     Json, Router,
 };
 
+use tracing::{debug, info, warn};
+
 use crate::{
     kobo::models::SyncToken,
-    library::models::{Book, LibraryState},
+    library::models::{refresh, retire, Book, LibraryState},
 };
 
 use super::models::{Entitlement, SyncEvent};
@@ -22,7 +24,7 @@ const SYNCTOKEN_HEADER: &str = "x-kobo-synctoken";
 
 pub fn create_library_router() -> Router<Arc<Mutex<LibraryState>>> {
     Router::new()
-        .route("/{book_id}", delete(stub))
+        .route("/{book_id}", delete(handle_delete))
         .route("/{book_id}/state", get(handle_state).put(stub))
         .route("/{book_id}/metadata", get(handle_metadata))
         .route("/tags/{book_or_tag_id}/items", post(stub))
@@ -51,6 +53,39 @@ async fn handle_metadata(
         Some(metadata) => Json(vec![metadata]).into_response(),
         None => StatusCode::NOT_FOUND.into_response(),
     }
+}
+
+async fn handle_delete(
+    State(library): State<Arc<Mutex<LibraryState>>>,
+    Path(book_id): Path<String>,
+) -> Response {
+    let (found, library_path) = {
+        let state = library
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+        (
+            state.find_book_by_id(&book_id).map(|book| book.path.clone()),
+            state.path.clone(),
+        )
+    };
+
+    let Some(path) = found else {
+        debug!("delete for unknown book {book_id}");
+        return StatusCode::NO_CONTENT;
+    };
+
+    match retire(&library_path, &path).await {
+        Ok(None) => info!("deleted on device: {}", path.display()),
+        Ok(Some(target)) => info!("deleted on device: {} -> {}", path.display(), target.display()),
+        Err(error) => {
+            warn!("cannot delete {}: {error}", path.display());
+            return StatusCode::INTERNAL_SERVER_ERROR;
+        }
+    }
+
+    refresh(library).await;
+    StatusCode::NO_CONTENT
 }
 
 async fn stub() -> StatusCode {
