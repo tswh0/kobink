@@ -26,11 +26,6 @@ services:
   kobink:
     image: ghcr.io/tswh0/kobink:latest
     restart: unless-stopped
-    user: "1000:1000"
-    read_only: true
-    tmpfs: ["/tmp"]
-    cap_drop: [ALL]
-    security_opt: ["no-new-privileges:true"]
     ports: ["3000:3000"]
     environment:
       PUBLIC_URL: http://192.168.1.10:3000
@@ -42,11 +37,8 @@ services:
 `PUBLIC_URL` has to be the address the reader can reach, because it ends up inside every download
 link. If the device can open it in a browser, it is right.
 
-The container runs unprivileged with a read-only root, so `./data` has to belong to that user once:
-
-```bash
-sudo chown -R 1000:1000 ./data
-```
+The bundled `docker-compose.yml` runs it unprivileged with a read-only root; if you use it,
+`chown -R 1000:1000 ./data` once.
 
 Then edit `.kobo/Kobo/Kobo eReader.conf` on the Kobo:
 
@@ -66,15 +58,9 @@ appends `/v1` itself. Press Sync afterwards.
 - Volumes arrive as a series with the right numbering. The name comes from the book's metadata,
   or from the title if the book has none (`Fire Punch v03`).
 - A sync with nothing new costs a few kilobytes.
-- A drop page lives at the root of the server: open it, type the API key once, and it stays unlocked
-  in that browser for a month. EPUB goes in as it is, CBZ and PDF are converted for your e-reader
-  first, and you can drop a whole stack at once — one progress bar, one line of feedback per file.
-  `/<key>/drop` still works if you would rather keep the key in the URL. The folder must be mounted
-  read-write (`LIBRARY_WRITE=:rw` in `.env`); otherwise the page tells you so.
-- Conversion needs [KCC](https://github.com/ciromattia/kcc) in the image:
-  `KOBINK_TARGET=conversion docker compose build` gives you one at around 400 MB instead of 2 MB,
-  with the e-readers to pick from. The plain image takes EPUB only, and says so on the page instead
-  of pretending.
+- A drop page at the root takes EPUB, CBZ and PDF from the browser, several at once. CBZ and PDF are
+  converted for your e-reader, which needs `LIBRARY_WRITE=:rw` and an image built with
+  `KOBINK_TARGET=conversion` (~400 MB, adds [KCC](https://github.com/ciromattia/kcc)).
 - The folder is read again every ten minutes. Drop a file in, wait, sync.
 - No database. One container, two folders.
 
