@@ -53,13 +53,11 @@ appends `/v1` itself. Press Sync afterwards.
 ## What it does
 
 - Covers are cut out of each book by the server, in the sizes the device asks for.
-- Manga converted with [KCC](https://github.com/ciromattia/kcc) fills the screen, because the
-  pages are fixed and the device is told so.
 - Volumes arrive as a series with the right numbering. The name comes from the book's metadata,
   or from the title if the book has none (`Fire Punch v03`).
 - A sync with nothing new costs a few kilobytes.
-- A drop page at the root takes EPUB, CBZ and PDF from the browser, several at once. CBZ and PDF are
-  converted for your e-reader, which needs `LIBRARY_WRITE=:rw` and `ghcr.io/tswh0/kobink:conversion`
+- A book-drop page at the domain root takes EPUB, CBZ and PDF from the browser, several at once. CBZ and PDF are
+  converted with [KCC](https://github.com/ciromattia/kcc) for your e-reader, which needs `LIBRARY_WRITE=:rw` and `ghcr.io/tswh0/kobink:conversion`
   (~400 MB) or a local `KOBINK_TARGET=conversion` build; plain `latest` takes EPUB only.
 - The folder is read again every ten minutes. Drop a file in, wait, sync.
 - No database. One container, two folders.
