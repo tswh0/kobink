@@ -19,7 +19,7 @@ COPY docker/qt-stub /usr/local/lib/python3.12/site-packages/
 
 RUN pip install --no-cache-dir --no-deps -r /tmp/requirements.txt \
     && pip install --no-cache-dir --no-deps \
-        "kcc @ https://github.com/ciromattia/kcc/archive/ae8079212bc0b3d6f65b0a734c84f9ae68ddc724.tar.gz#sha256=35fa3bf2b40fd715482d7ed212d349a66e7b17d92ae91ee7a9503214561c445c" \
+        "https://github.com/ciromattia/kcc/archive/ae8079212bc0b3d6f65b0a734c84f9ae68ddc724.tar.gz#sha256=35fa3bf2b40fd715482d7ed212d349a66e7b17d92ae91ee7a9503214561c445c" \
     && find /usr/local/lib/python3.12 -name "__pycache__" -prune -exec rm -rf {} + \
     && rm -f /tmp/requirements.txt
 
