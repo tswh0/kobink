@@ -3,9 +3,20 @@ services:
     image: ghcr.io/tswh0/kobink:${KOBINK_TAG:-latest}
     build:
       context: .
+      target: ${KOBINK_TARGET:-runtime}
     pull_policy: missing
     container_name: kobink
     restart: unless-stopped
+    user: "${KOBINK_UID:-1000}:${KOBINK_GID:-1000}"
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: ${KOBINK_MEMORY:-2g}
     ports:
       - "${KOBINK_PORT:-3000}:3000"
     environment:
@@ -17,5 +28,5 @@ services:
       LIBRARY_REFRESH_SECONDS: ${LIBRARY_REFRESH_SECONDS:-600}
       RUST_LOG: ${RUST_LOG:-info}
     volumes:
-      - ${LIBRARY_DIR:-./library}:/library:ro
+      - "${LIBRARY_DIR:-./library}:/library${LIBRARY_WRITE:-:ro}"
       - ./data:/app/data

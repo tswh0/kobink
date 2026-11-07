@@ -37,6 +37,9 @@ services:
 `PUBLIC_URL` has to be the address the reader can reach, because it ends up inside every download
 link. If the device can open it in a browser, it is right.
 
+The bundled `docker-compose.yml` runs it unprivileged with a read-only root; if you use it,
+`chown -R 1000:1000 ./data` once.
+
 Then edit `.kobo/Kobo/Kobo eReader.conf` on the Kobo:
 
 ```ini
@@ -55,6 +58,9 @@ appends `/v1` itself. Press Sync afterwards.
 - Volumes arrive as a series with the right numbering. The name comes from the book's metadata,
   or from the title if the book has none (`Fire Punch v03`).
 - A sync with nothing new costs a few kilobytes.
+- A drop page at the root takes EPUB, CBZ and PDF from the browser, several at once. CBZ and PDF are
+  converted for your e-reader, which needs `LIBRARY_WRITE=:rw` and an image built with
+  `KOBINK_TARGET=conversion` (~400 MB, adds [KCC](https://github.com/ciromattia/kcc)).
 - The folder is read again every ten minutes. Drop a file in, wait, sync.
 - No database. One container, two folders.
 

@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>kobink · drop a book</title>
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0c0c0d" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" href="/favicon-32.png" sizes="32x32">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/page.css">
+</head>
+<body>
+
+<article class="card">
+  <header>
+    <h1>Drop a book</h1>
+    <p>EPUB is added as it is. CBZ and PDF are converted for your e-reader first. Either way it shows up on the reader after the next sync.</p>
+  </header>
+
+  {{NOTICE}}
+
+  <form method="post" action="{{ACTION}}" enctype="multipart/form-data">
+    <div class="vstack gap-4">
+      {{CONTROLS}}
+      <div class="field">
+        <span>Files</span>
+        <input type="file" name="file" accept=".epub,.cbz,.pdf" multiple required>
+      </div>
+      <button>Upload</button>
+    </div>
+  </form>
+
+  <div class="bar" role="progressbar" aria-label="Upload progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" hidden><i></i></div>
+  <p class="phase" hidden></p>
+  <ul class="results"></ul>
+</article>
+
+<script src="/app.js" defer></script>
+
+</body>
+</html>

@@ -74,6 +74,13 @@ header() {
         awk -v key="$name" 'tolower($1) == (key ":") { print $2 }'
 }
 
+header_value() {
+    local name=$1 url=$2
+    shift 2
+    curl -s -o /dev/null -D - "$@" "$url" | tr -d '\r' |
+        awk -v key="$name" 'tolower($1) == (key ":") { $1 = ""; sub(/^ /, ""); print; exit }'
+}
+
 dims() {
     python3 - "$1" <<'PY'
 import struct
@@ -106,6 +113,29 @@ read_dims() {
 
 section "fixtures"
 python3 "$DIR/fixtures.py" "$LIB"
+python3 "$DIR/fixtures.py" --manga "$WORK/manga"
+
+cat > "$WORK/kcc-c2e" <<'STUB'
+#!/bin/sh
+out=""
+input=""
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        -h) echo "usage: kcc-c2e (stub)"; exit 0 ;;
+        -o) out=$2; shift ;;
+        --) shift; input=$1; shift; break ;;
+    esac
+    shift
+done
+case "$input" in
+    *fail*) echo "stub refuses $input" >&2; exit 1 ;;
+esac
+[ -n "$out" ] || { echo "stub: no -o" >&2; exit 2; }
+cp "$STUB_EPUB" "$out"
+STUB
+chmod +x "$WORK/kcc-c2e"
+export KCC_BIN="$WORK/kcc-c2e"
+export STUB_EPUB="$WORK/manga/stub/Fire Punch v03.epub"
 
 section "startup"
 "$BIN" >"$LOG" 2>&1 &
@@ -132,7 +162,6 @@ say "version" "$version"
 grep -q "says hello" "$LOG" || fail "startup log has no hello line"
 
 section "auth"
-check "root" "$(status "$BASE/")" 404
 check "without key" "$(status "$BASE/kobo/v1/user/profile")" 404
 check "wrong key" "$(status "$BASE/not-the-key/kobo/v1/user/profile")" 404
 check "right key" "$(status "$(api /kobo/v1/user/profile)")" 200
@@ -200,6 +229,8 @@ check "covers cached" "$(find "$COVERS" -type f | wc -l | tr -d ' ')" 3
 section "downloads"
 check "download" "$(status "$url")" 200
 check "download type" "$(header content-type "$url")" application/x-kobo-epub+zip
+check "download disposition" "$(header_value content-disposition "$url")" 'attachment; filename="BLAME!_Master_Edition_v01.kepub.epub"' 
+check "download nosniff" "$(header x-content-type-options "$url")" nosniff
 
 grab epub_url "$babel" '.NewEntitlement.BookMetadata.DownloadUrls[0].Url'
 check "epub download" "$(status "$epub_url")" 200
@@ -211,6 +242,114 @@ check "image host" "$(printf '%s' "$init" | jq -r '.Resources.image_host')" "$BA
 template=$(printf '%s' "$init" | jq -r '.Resources.image_url_template')
 [[ $template == *"$KEY"* ]] || fail "image template does not carry the key: $template"
 say "image template" "$template"
+
+section "drop"
+check "drop page" "$(status "$(api /drop)")" 200
+check "drop without key" "$(status "$BASE/drop")" 404
+check "stylesheet" "$(status "$BASE/style.css")" 200
+check "multiple files" "$(curl -s "$(api /drop)" | grep -c 'name="file" accept="[^"]*" multiple')" 1
+
+cp "$LIB/BLAME!/BLAME! Master Edition v01.kepub.epub" "$WORK/drop-test.kepub.epub"
+body=$(curl -s -L -F "file=@$WORK/drop-test.kepub.epub" "$(api /drop/upload)")
+[[ $body == *"Book added"* ]] || fail "drop upload did not confirm"
+json "books after drop" "$(curl -s "$(api /kobo/v1/library/sync)")" 'length' 6
+
+body=$(curl -s -L -F "file=@$WORK/drop-test.kepub.epub;filename=../evil.epub" "$(api /drop/upload)")
+[[ $body == *"Only .epub, .cbz and .pdf"* ]] || fail "a path in the upload name was accepted"
+
+printf 'not a book' > "$WORK/notes.txt"
+body=$(curl -s -L -F "file=@$WORK/notes.txt" "$(api /drop/upload)")
+[[ $body == *"Only .epub, .cbz and .pdf"* ]] || fail "a txt file was accepted"
+
+rm -f "$LIB/drop-test.kepub.epub"
+
+section "root"
+check "root offers the key" "$(status "$BASE/")" 200
+curl -s "$BASE/" | grep -q 'name="key"' || fail "root did not ask for the key"
+[[ $(curl -s "$BASE/") == *'name="file"'* ]] && fail "root showed the upload without a key"
+curl -s "$BASE/?status=bad" | grep -q "does not match" || fail "a wrong key was not explained"
+check "favicon" "$(status "$BASE/favicon.ico")" 200
+check "page style" "$(status "$BASE/page.css")" 200
+check "page script" "$(status "$BASE/app.js")" 200
+check "nosniff" "$(header x-content-type-options "$BASE/")" nosniff
+check "csp" "$(header_value content-security-policy "$BASE/" | cut -c1-21)" "default-src 'none'; s"
+curl -s "$BASE/app.js" | grep -q "XMLHttpRequest" || fail "app.js is not the upload script"
+curl -s "$BASE/" | grep -q '</style>' && fail "the login page still carries inline style"
+check "favicon type" "$(header content-type "$BASE/favicon.ico")" image/x-icon
+
+jar=$WORK/jar.txt
+check "wrong key" "$(curl -s -o /dev/null -w '%{http_code}' -c "$jar" -d "key=wrong" "$BASE/")" 303
+[[ $(curl -s -b "$jar" "$BASE/") == *'name="file"'* ]] && fail "a wrong key unlocked the page"
+
+check "right key" "$(curl -s -o /dev/null -w '%{http_code}' -c "$jar" -d "key=$KEY" "$BASE/")" 303
+curl -s -b "$jar" "$BASE/" | grep -q 'name="file"' || fail "the right key did not unlock the page"
+
+check "upload without a cookie" "$(status -X POST -F "file=@$WORK/drop-test.kepub.epub" "$BASE/upload")" 303
+
+body=$(curl -s -L -b "$jar" -F "file=@$WORK/drop-test.kepub.epub" "$BASE/upload")
+[[ $body == *"Book added"* ]] || fail "a cookie upload did not confirm"
+json "books after root upload" "$(curl -s "$(api /kobo/v1/library/sync)")" 'length' 6
+rm -f "$LIB/drop-test.kepub.epub"
+
+section "batch"
+cp "$LIB/R.F. Kuang/Babel - Rebecca F. Kuang (2022).epub" "$WORK/one.epub"
+cp "$LIB/R.F. Kuang/Babel - Rebecca F. Kuang (2022).epub" "$WORK/two.epub"
+body=$(curl -s -L -F "file=@$WORK/one.epub" -F "file=@$WORK/two.epub" "$(api /drop/upload)")
+[ "$(grep -o "Book added" <<< "$body" | wc -l)" -eq 2 ] || fail "two files in one request did not both confirm"
+[ -f "$LIB/one.epub" ] && [ -f "$LIB/two.epub" ] || fail "a file from the batch is missing"
+json "books after batch" "$(curl -s "$(api /kobo/v1/library/sync)")" 'length' 7
+rm -f "$LIB/one.epub" "$LIB/two.epub"
+
+section "manga"
+check "profile picker" "$(curl -s "$(api /drop)" | grep -c '<select name="profile"')" 1
+
+body=$(curl -s -L -F "file=@$WORK/manga/cbz/Fire Punch v03.cbz" -F profile=KoL "$(api /drop/upload)")
+[[ $body == *"Converted and added"* ]] || fail "convert: no confirmation on the page"
+[ -f "$LIB/Fire Punch v03.kepub.epub" ] || fail "convert: no kepub in the library"
+
+sync=$(curl -s "$(api /kobo/v1/library/sync)")
+json "books after convert" "$sync" 'length' 6
+json "converted format" "$(book "Fire Punch v03")" '.NewEntitlement.BookMetadata.DownloadUrls | map(.Format) | join(",")' KEPUB
+json "converted series" "$(book "Fire Punch v03")" '.NewEntitlement.BookMetadata.Series.Name' "Fire Punch"
+rm -f "$LIB/Fire Punch v03.kepub.epub"
+
+body=$(curl -s -L -F "file=@$WORK/manga/cbz/Fire Punch v04.pdf" -F profile=KoL "$(api /drop/upload)")
+[[ $body == *"Converted and added"* ]] || fail "pdf: no confirmation on the page"
+[ -f "$LIB/Fire Punch v04.kepub.epub" ] || fail "pdf: no kepub in the library"
+rm -f "$LIB/Fire Punch v04.kepub.epub"
+
+body=$(curl -s -L -F "file=@$WORK/manga/cbz/Fire Punch v03.cbz" -F profile=KPW5 "$(api /drop/upload)")
+[[ $body == *"Converted and added"* ]] || fail "kindle profile: no confirmation"
+[ -f "$LIB/Fire Punch v03.epub" ] || fail "kindle profile did not write a plain .epub"
+
+body=$(curl -s -L -F "file=@$WORK/manga/cbz/Fire Punch v03.cbz" -F profile=XX "$(api /drop/upload)")
+[[ $body == *"Unknown e-reader"* ]] || fail "an unknown profile was accepted"
+
+body=$(curl -s -L -F "file=@$WORK/manga/cbz/fail.cbz" -F profile=KoL "$(api /drop/upload)")
+[[ $body == *"KCC could not convert"* ]] || fail "a failing kcc was reported as a success"
+
+rm -f "$LIB/Fire Punch v03.epub"
+say "manga" "9 checks"
+
+section "manga off"
+port=$(printf '%s' "$BASE" | sed -nE 's|^https?://[^:/]+:([0-9]+).*|\1|p')
+off_port=$(( ${port:-3000} + 1 ))
+KCC_BIN=/nonexistent KOBINK_PORT=$off_port PUBLIC_URL="http://127.0.0.1:$off_port" "$BIN" >"$WORK/off.log" 2>&1 &
+off=$!
+
+for _ in $(seq 1 20); do
+    [ "$(status "http://127.0.0.1:$off_port/")" != "000" ] && break
+    sleep 1
+done
+
+body=$(curl -s "http://127.0.0.1:$off_port/$KEY/drop")
+[[ $body == *"built with KCC"* ]] || fail "the page did not say that KCC is missing"
+[[ $body == *'<select name="profile"' ]] && fail "the profile picker appeared without KCC"
+
+body=$(curl -s -L -F "file=@$WORK/manga/cbz/Fire Punch v03.cbz" "http://127.0.0.1:$off_port/$KEY/drop/upload")
+[[ $body == *"no KCC"* ]] || fail "a cbz was accepted without kcc"
+kill "$off" 2>/dev/null || true
+say "page without kcc" "hint only"
 
 section "background"
 for _ in $(seq 1 20); do

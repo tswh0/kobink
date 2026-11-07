@@ -1,0 +1,49 @@
+name: docker
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "Dockerfile"
+      - "docker/**"
+      - "ci/fixtures.py"
+      - ".github/workflows/docker.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  conversion:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+
+      - name: build
+        run: docker buildx build --target conversion --load -t kobink:conversion .
+
+      - name: size
+        run: docker image ls kobink:conversion --format '::notice title=conversion image::{{.Size}}' | sed 's/^/size /'
+
+      - name: kcc answers
+        run: docker run --rm --entrypoint kcc-c2e kobink:conversion -h >/dev/null
+
+      - name: convert a book
+        run: |
+          set -euo pipefail
+          python3 ci/fixtures.py --manga "$PWD/fx"
+          mkdir -p out
+          docker run --rm --entrypoint kcc-c2e \
+            -v "$PWD/fx:/fx:ro" -v "$PWD/out:/out" \
+            kobink:conversion \
+            -p KoL -m -r 2 --coverfill -f EPUB -t "Fire Punch v03" \
+            -o "/out/Fire Punch v03.kepub.epub" -- "/fx/cbz/Fire Punch v03.cbz"
+          test -s "out/Fire Punch v03.kepub.epub"
+          python3 - <<'PY'
+          import zipfile
+          with zipfile.ZipFile("out/Fire Punch v03.kepub.epub") as book:
+              names = book.namelist()
+          assert names[0] == "mimetype", names[:3]
+          print(f"::notice title=conversion::kepub with {len(names)} entries")
+          PY

@@ -73,6 +73,32 @@ def make_epub(path, title, author, layout="reflowable", series=None, number=None
         epub.writestr("OEBPS/cover.png", PNG)
 
 
+def make_cbz(path, pages=2):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+
+    with zipfile.ZipFile(path, "w") as cbz:
+        for index in range(pages):
+            cbz.writestr(f"{index:03d}.png", PNG)
+
+
+if sys.argv[1] == "--manga":
+    out = sys.argv[2]
+    make_cbz(f"{out}/cbz/Fire Punch v03.cbz")
+    make_cbz(f"{out}/cbz/fail.cbz")
+
+    with open(f"{out}/cbz/Fire Punch v04.pdf", "wb") as pdf:
+        pdf.write(b"%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\n%%EOF\n")
+    make_epub(
+        f"{out}/stub/Fire Punch v03.epub",
+        "Fire Punch v03",
+        "Tatsuki Fujimoto",
+        series="Fire Punch",
+        number=3,
+    )
+    print(f"manga fixtures in {out}")
+    sys.exit(0)
+
+
 root = sys.argv[1]
 
 for volume in (1, 2, 3):

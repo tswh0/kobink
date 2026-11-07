@@ -1,10 +1,18 @@
-use axum::{http::StatusCode, middleware, Router};
+use axum::{
+    http::{header, HeaderValue, StatusCode},
+    middleware,
+    Router,
+};
 
 mod logging;
 use crate::{
     auth,
+    drop,
     kobo::{self, create_kobo_router},
-    library::{create_download_router, models::LibraryState},
+    library::{
+        create_download_router,
+        models::{refresh, LibraryState},
+    },
 };
 use std::{
     net::SocketAddr,
@@ -26,7 +34,7 @@ pub async fn start_server() {
     let initial_state = LibraryState::new(&library_path);
     let arcref = Arc::new(Mutex::new(initial_state));
 
-    spawn_library_refresh(Arc::clone(&arcref), &library_path);
+    spawn_library_refresh(Arc::clone(&arcref));
 
     let api_key = auth::api_key();
     let app = Router::<Arc<Mutex<LibraryState>>>::new()
@@ -36,7 +44,9 @@ pub async fn start_server() {
         )
         .nest(&format!("/{api_key}/download"), create_download_router())
         .merge(kobo::covers::create_cover_router(&format!("/{api_key}")))
+        .merge(drop::create_drop_router(&format!("/{api_key}")))
         .fallback(not_found)
+        .layer(middleware::from_fn(security_headers))
         .layer(middleware::from_fn(logging::log_request_response))
         .with_state(Arc::clone(&arcref));
 
@@ -57,7 +67,7 @@ pub async fn start_server() {
     }
 }
 
-fn spawn_library_refresh(library: Arc<Mutex<LibraryState>>, library_path: &str) {
+fn spawn_library_refresh(library: Arc<Mutex<LibraryState>>) {
     let interval_seconds = std::env::var("LIBRARY_REFRESH_SECONDS")
         .ok()
         .and_then(|value| value.trim().parse::<u64>().ok())
@@ -68,47 +78,41 @@ fn spawn_library_refresh(library: Arc<Mutex<LibraryState>>, library_path: &str) 
         return;
     }
 
-    let library_path = library_path.to_string();
     tokio::spawn(async move {
         let mut ticker = tokio::time::interval(std::time::Duration::from_secs(interval_seconds));
         ticker.tick().await;
+
         loop {
             ticker.tick().await;
-
-            let previous = library
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner())
-                .books
-                .clone();
-
-            let path = library_path.clone();
-            let books =
-                match tokio::task::spawn_blocking(move || crate::library::models::scan(&path, &previous))
-                    .await
-                {
-                    Ok(books) => books,
-                    Err(error) => {
-                        tracing::warn!("library scan failed: {error}");
-                        continue;
-                    }
-                };
-
-            let version = crate::library::models::version(&books);
-            let count = books.len();
-
-            {
-                let mut state = library
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner());
-                state.books = Arc::new(books);
-                state.version = version;
-            }
-
-            info!("library refreshed: {} books", count);
+            refresh(Arc::clone(&library)).await;
         }
     });
 
     info!("library refresh every {}s", interval_seconds);
+}
+
+async fn security_headers(request: axum::extract::Request, next: middleware::Next) -> axum::response::Response {
+    let mut response = next.run(request).await;
+    let headers = response.headers_mut();
+
+    headers.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    headers.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
+    headers.insert(
+        header::REFERRER_POLICY,
+        HeaderValue::from_static("no-referrer"),
+    );
+    headers.insert(
+        header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static(
+            "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; \
+             connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+        ),
+    );
+
+    response
 }
 
 async fn not_found(uri: axum::http::Uri) -> (StatusCode, String) {
