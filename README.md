@@ -61,7 +61,7 @@ appends `/v1` itself. Press Sync afterwards.
   `/<key>/drop` still works if you would rather keep the key in the URL. The folder must be mounted
   read-write (`LIBRARY_WRITE=:rw` in `.env`); otherwise the page tells you so.
 - Conversion needs [KCC](https://github.com/ciromattia/kcc) in the image:
-  `KOBINK_TARGET=conversion docker compose build` gives you one at around 300 MB instead of 2 MB,
+  `KOBINK_TARGET=conversion docker compose build` gives you one at around 400 MB instead of 2 MB,
   with the e-readers to pick from. The plain image takes EPUB only, and says so on the page instead
   of pretending.
 - The folder is read again every ten minutes. Drop a file in, wait, sync.
