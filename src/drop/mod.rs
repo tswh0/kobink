@@ -60,6 +60,10 @@ struct Part {
     size: u64,
 }
 
+pub fn kcc_available() -> bool {
+    kcc::available()
+}
+
 pub fn create_drop_router(prefix: &str) -> Router<Arc<Mutex<LibraryState>>> {
     Router::new()
         .route("/", get(root).post(login))

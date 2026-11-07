@@ -37,6 +37,14 @@ async fn run() {
     tracing_subscriber::fmt().init();
 
     info!("kobink {VERSION} says hello");
+    info!(
+        "kcc: {}",
+        if drop::kcc_available() {
+            "found, CBZ and PDF are converted for the e-reader"
+        } else {
+            "missing, only EPUB is accepted"
+        }
+    );
 
     auth::log_endpoint();
     start_server().await

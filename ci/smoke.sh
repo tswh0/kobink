@@ -160,6 +160,7 @@ version=$("$BIN" --version)
 [[ $version =~ ^kobink\ [0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "version: unexpected '$version'"
 say "version" "$version"
 grep -q "says hello" "$LOG" || fail "startup log has no hello line"
+grep -q "kcc: found" "$LOG" || fail "startup log does not report kcc as found"
 
 section "auth"
 check "without key" "$(status "$BASE/kobo/v1/user/profile")" 404
@@ -341,6 +342,8 @@ for _ in $(seq 1 20); do
     [ "$(status "http://127.0.0.1:$off_port/")" != "000" ] && break
     sleep 1
 done
+
+grep -q "kcc: missing" "$WORK/off.log" || fail "the image without kcc does not say so at startup"
 
 body=$(curl -s "http://127.0.0.1:$off_port/$KEY/drop")
 [[ $body == *"built with KCC"* ]] || fail "the page did not say that KCC is missing"
