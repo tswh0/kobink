@@ -59,6 +59,8 @@ appends `/v1` itself. Press Sync afterwards.
 - A book-drop page at the domain root takes EPUB, CBZ and PDF from the browser, several at once. CBZ and PDF are
   converted with [KCC](https://github.com/ciromattia/kcc) for your e-reader, which needs `LIBRARY_WRITE=:rw` and `ghcr.io/tswh0/kobink:conversion`
   (~400 MB) or a local `KOBINK_TARGET=conversion` build; plain `latest` takes EPUB only.
+- Deleting a book on the reader moves its file into `.kobink-trash/` inside the library, dated.
+  `LIBRARY_TRASH=off` deletes it outright instead.
 - The folder is read again every ten minutes. Drop a file in, wait, sync.
 - No database. One container, two folders.
 

@@ -13,6 +13,8 @@ use crate::{
     kobo::library::models::DownloadUrl,
 };
 
+pub const TRASH: &str = ".kobink-trash";
+
 #[derive(Debug, Clone)]
 pub struct BookSeries {
     pub name: String,
@@ -167,6 +169,7 @@ pub fn scan(library_path: &str, previous: &[Book]) -> Vec<Book> {
 
     for entry in WalkDir::new(library_path)
         .into_iter()
+        .filter_entry(|entry| entry.depth() == 0 || !hidden(entry))
         .filter_map(|e| e.ok())
         .filter(|e| e.path().extension().is_some_and(|ext| ext == "epub"))
     {
@@ -357,4 +360,39 @@ pub async fn refresh(library: Arc<Mutex<LibraryState>>) {
     }
 
     tracing::info!("library refreshed: {} books", count);
+}
+
+fn hidden(entry: &walkdir::DirEntry) -> bool {
+    entry
+        .file_name()
+        .to_str()
+        .is_some_and(|name| name.starts_with('.'))
+}
+
+pub async fn retire(library_path: &str, path: &Path) -> std::io::Result<Option<PathBuf>> {
+    if std::env::var("LIBRARY_TRASH").as_deref() == Ok("off") {
+        tokio::fs::remove_file(path).await?;
+        return Ok(None);
+    }
+
+    let root = Path::new(library_path);
+    let relative = path.strip_prefix(root).unwrap_or(path);
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_secs())
+        .unwrap_or_default();
+    let target = root.join(TRASH).join(stamp.to_string()).join(relative);
+
+    if let Some(parent) = target.parent() {
+        tokio::fs::create_dir_all(parent).await?;
+    }
+
+    match tokio::fs::rename(path, &target).await {
+        Ok(()) => Ok(Some(target)),
+        Err(_) => {
+            tokio::fs::copy(path, &target).await?;
+            tokio::fs::remove_file(path).await?;
+            Ok(Some(target))
+        }
+    }
 }
