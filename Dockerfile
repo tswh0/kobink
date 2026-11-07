@@ -11,22 +11,17 @@ RUN cargo build --release --locked
 FROM python:3.12-slim-bookworm@sha256:935c3c5b12357a7e10caa9c1e6ca5692344d97cf229832ef584be2cec9fc03df AS conversion
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends p7zip-full libgl1 libglib2.0-0 \
+    && apt-get install -y --no-install-recommends p7zip-full \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip install --no-cache-dir \
-        "Pillow>=9.3.0" \
-        "numpy>=1.22" \
-        "natsort>=8.4" \
-        "python-slugify>=1.2" \
-        "requests>=2.31" \
-        "packaging>=23.2" \
-        "psutil>=5.9" \
-        "PySide6-Essentials" \
-        "PyMuPDF" \
-        "mozjpeg-lossless-optimization>=1.2" \
+COPY docker/requirements.txt /tmp/requirements.txt
+COPY docker/qt-stub /usr/local/lib/python3.12/site-packages/
+
+RUN pip install --no-cache-dir --no-deps -r /tmp/requirements.txt \
     && pip install --no-cache-dir --no-deps \
-        "https://github.com/ciromattia/kcc/archive/refs/tags/v12.1.3.tar.gz"
+        "kcc @ https://github.com/ciromattia/kcc/archive/ae8079212bc0b3d6f65b0a734c84f9ae68ddc724.tar.gz#sha256=35fa3bf2b40fd715482d7ed212d349a66e7b17d92ae91ee7a9503214561c445c" \
+    && find /usr/local/lib/python3.12 -name "__pycache__" -prune -exec rm -rf {} + \
+    && rm -f /tmp/requirements.txt
 
 COPY --from=build /src/target/release/kobink /usr/local/bin/kobink
 COPY --from=build /empty /library
@@ -35,7 +30,8 @@ WORKDIR /app
 ENV LIBRARY_PATH=/library \
     PUBLIC_URL=http://localhost:3000 \
     RUST_LOG=info \
-    KCC_BIN=kcc-c2e
+    KCC_BIN=kcc-c2e \
+    PYTHONUNBUFFERED=1
 
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \

@@ -15,3 +15,8 @@ updates:
     directory: "/"
     schedule:
       interval: weekly
+
+  - package-ecosystem: pip
+    directory: "/docker"
+    schedule:
+      interval: weekly
