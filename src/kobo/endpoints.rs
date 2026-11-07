@@ -12,12 +12,13 @@ use super::{
 };
 
 use axum::{
+    extract::{Path, State},
     http::{header, HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
-use serde_json::Value;
+use serde_json::{json, Value};
 
 const INITIALIZATION_DATA: &str = include_str!("./data/initialization.json");
 
@@ -104,57 +105,57 @@ fn snapshot(library: &Arc<Mutex<LibraryState>>) -> Arc<Vec<crate::library::model
         .clone()
 }
 
-async fn handle_profile() -> Json<serde_json::Value> {
+async fn handle_profile() -> Json<Value> {
     if disabled() {
-        return Json(serde_json::json!({}));
+        return Json(json!({}));
     }
 
     let name = std::env::var("KOBO_NAME").unwrap_or_else(|_| "kobink".to_string());
 
-    Json(serde_json::json!({
+    Json(json!({
         "UserProfile": { "DisplayName": name },
         "RequestResult": "Success",
     }))
 }
 
-async fn handle_featured(State(library): State<Arc<Mutex<LibraryState>>>) -> Json<serde_json::Value> {
+async fn handle_featured(State(library): State<Arc<Mutex<LibraryState>>>) -> Json<Value> {
     if disabled() {
-        return Json(serde_json::json!([]));
+        return Json(json!([]));
     }
 
     let books = snapshot(&library);
 
-    Json(serde_json::json!(products::newest(&books, SHELF)))
+    Json(json!(products::newest(&books, SHELF)))
 }
 
-async fn handle_deals(State(library): State<Arc<Mutex<LibraryState>>>) -> Json<serde_json::Value> {
+async fn handle_deals(State(library): State<Arc<Mutex<LibraryState>>>) -> Json<Value> {
     if disabled() {
-        return Json(serde_json::json!([]));
+        return Json(json!([]));
     }
 
     let books = snapshot(&library);
 
-    Json(serde_json::json!(products::waiting(&books, SHELF)))
+    Json(json!(products::waiting(&books, SHELF)))
 }
 
 async fn handle_recommendations(
     State(library): State<Arc<Mutex<LibraryState>>>,
-) -> Json<serde_json::Value> {
+) -> Json<Value> {
     if disabled() {
-        return Json(serde_json::json!([]));
+        return Json(json!([]));
     }
 
     let books = snapshot(&library);
 
-    Json(serde_json::json!(products::collecting(&books, SHELF)))
+    Json(json!(products::collecting(&books, SHELF)))
 }
 
 async fn handle_nextread(
     State(library): State<Arc<Mutex<LibraryState>>>,
     Path(book_id): Path<String>,
-) -> Json<serde_json::Value> {
+) -> Json<Value> {
     if disabled() {
-        return Json(serde_json::json!({}));
+        return Json(json!({}));
     }
 
     let books = snapshot(&library);
@@ -162,7 +163,7 @@ async fn handle_nextread(
 
     match found.and_then(|book| products::nextread(&books, book)) {
         Some(product) => Json(product),
-        None => Json(serde_json::json!({})),
+        None => Json(json!({})),
     }
 }
 

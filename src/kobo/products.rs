@@ -71,7 +71,7 @@ pub fn nextread(books: &[Book], book: &Book) -> Option<Value> {
     next_in_series(books, &series.name, series.number).map(product)
 }
 
-fn next_in_series(books: &[Book], name: &str, after: f64) -> Option<&Book> {
+fn next_in_series<'a>(books: &'a [Book], name: &str, after: f64) -> Option<&'a Book> {
     books
         .iter()
         .filter(|candidate| {
