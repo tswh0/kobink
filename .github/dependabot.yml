@@ -20,3 +20,7 @@ updates:
     directory: "/docker"
     schedule:
       interval: weekly
+    ignore:
+      # pymupdf 2.x pulls onnxruntime and a layout model: ~250 MB for a path kcc never calls
+      - dependency-name: "pymupdf"
+        update-types: ["version-update:semver-major"]
