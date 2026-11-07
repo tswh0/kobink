@@ -62,6 +62,9 @@ appends `/v1` itself. Press Sync afterwards.
 - Deleting a book on the reader moves its file into `.kobink-trash/` inside the library, dated.
   `LIBRARY_TRASH=off` deletes it outright instead.
 - The folder is read again every ten minutes. Drop a file in, wait, sync.
+- The store rows the device asks for — featured, deals, recommendations, nextread — are filled from
+  your library, and the profile shows `KOBO_NAME` (default `kobink`). `KOBO_STORE=off` answers them
+  empty again.
 - No database. One container, two folders.
 
 ## Compared to upstream

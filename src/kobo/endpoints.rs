@@ -7,6 +7,7 @@ use crate::{
 
 use super::{
     library::create_library_router,
+    products,
     models::{AuthDeviceRequest, AuthDeviceResponse},
 };
 
@@ -23,10 +24,13 @@ const INITIALIZATION_DATA: &str = include_str!("./data/initialization.json");
 pub fn create_kobo_router() -> Router<Arc<Mutex<LibraryState>>> {
     Router::new()
         .route("/auth/device", post(handle_auth_device))
-        .route("/user/profile", get(stub))
+        .route("/user/profile", get(handle_profile))
         .route("/user/loyalty/benefits", get(stub))
-        .route("/user/recommendations", get(stub))
-        .route("/deals", get(stub))
+        .route("/user/recommendations", get(handle_recommendations))
+        .route("/deals", get(handle_deals))
+        .route("/products/featured", get(handle_featured))
+        .route("/products/featured/", get(handle_featured))
+        .route("/products/{book_id}/nextread", get(handle_nextread))
         .route("/products/{*_}", get(stub))
         .route("/analytics/{*_}", get(stub).post(stub))
         .route("/affiliate", get(stub))
@@ -84,6 +88,82 @@ fn initialization() -> &'static str {
 
         root.to_string()
     })
+}
+
+const SHELF: usize = 6;
+
+fn disabled() -> bool {
+    std::env::var("KOBO_STORE").as_deref() == Ok("off")
+}
+
+fn snapshot(library: &Arc<Mutex<LibraryState>>) -> Arc<Vec<crate::library::models::Book>> {
+    library
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .books
+        .clone()
+}
+
+async fn handle_profile() -> Json<serde_json::Value> {
+    if disabled() {
+        return Json(serde_json::json!({}));
+    }
+
+    let name = std::env::var("KOBO_NAME").unwrap_or_else(|_| "kobink".to_string());
+
+    Json(serde_json::json!({
+        "UserProfile": { "DisplayName": name },
+        "RequestResult": "Success",
+    }))
+}
+
+async fn handle_featured(State(library): State<Arc<Mutex<LibraryState>>>) -> Json<serde_json::Value> {
+    if disabled() {
+        return Json(serde_json::json!([]));
+    }
+
+    let books = snapshot(&library);
+
+    Json(serde_json::json!(products::newest(&books, SHELF)))
+}
+
+async fn handle_deals(State(library): State<Arc<Mutex<LibraryState>>>) -> Json<serde_json::Value> {
+    if disabled() {
+        return Json(serde_json::json!([]));
+    }
+
+    let books = snapshot(&library);
+
+    Json(serde_json::json!(products::waiting(&books, SHELF)))
+}
+
+async fn handle_recommendations(
+    State(library): State<Arc<Mutex<LibraryState>>>,
+) -> Json<serde_json::Value> {
+    if disabled() {
+        return Json(serde_json::json!([]));
+    }
+
+    let books = snapshot(&library);
+
+    Json(serde_json::json!(products::collecting(&books, SHELF)))
+}
+
+async fn handle_nextread(
+    State(library): State<Arc<Mutex<LibraryState>>>,
+    Path(book_id): Path<String>,
+) -> Json<serde_json::Value> {
+    if disabled() {
+        return Json(serde_json::json!({}));
+    }
+
+    let books = snapshot(&library);
+    let found = books.iter().find(|book| book.id.to_string() == book_id);
+
+    match found.and_then(|book| products::nextread(&books, book)) {
+        Some(product) => Json(product),
+        None => Json(serde_json::json!({})),
+    }
 }
 
 async fn stub() -> (StatusCode, &'static str) {

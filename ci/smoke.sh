@@ -198,6 +198,28 @@ babel=$(book "Babel")
 json "no series" "$babel" '.NewEntitlement.BookMetadata | has("Series") == false'
 json "epub formats" "$babel" '.NewEntitlement.BookMetadata.DownloadUrls | map(.Format) | join(",")' "EPUB3,EPUB"
 
+section "shelves"
+featured=$(curl -s "$(api /kobo/v1/products/featured/)")
+json "featured count" "$featured" 'length' 5
+json "featured titles" "$featured" '[.[] | .Title | type] | unique | join(",")' string
+json "featured ids" "$featured" '[.[] | select((.Id | type) != "string")] | length' 0
+json "featured prices" "$featured" '[.[] | .Prices | type] | unique | join(",")' array
+
+json "deals count" "$(curl -s "$(api /kobo/v1/deals)")" 'length' 5
+
+recs=$(curl -s "$(api /kobo/v1/user/recommendations)")
+json "recommendations" "$recs" 'length' 1
+json "recommendation series" "$recs" '.[0].Series.Name' "BLAME! Master Edition"
+json "recommendation volume" "$recs" '.[0].Series.Number == 2' true
+
+blame_one=$(printf '%s' "$sync" | jq -r '[.[] | select(.NewEntitlement.BookMetadata.Title == "BLAME! Master Edition v01")][0].NewEntitlement.BookEntitlement.Id')
+json "nextread" "$(curl -s "$(api "/kobo/v1/products/$blame_one/nextread")")" '.Title' "BLAME! Master Edition v02"
+
+babel_id=$(printf '%s' "$sync" | jq -r '[.[] | select(.NewEntitlement.BookMetadata.Title == "Babel")][0].NewEntitlement.BookEntitlement.Id')
+json "nextread without series" "$(curl -s "$(api "/kobo/v1/products/$babel_id/nextread")")" '. == {}' true
+
+json "profile name" "$(curl -s "$(api /kobo/v1/user/profile)")" '.UserProfile.DisplayName' "kobink"
+
 section "transport"
 check "gzip" "$(header content-encoding "$(api /kobo/v1/library/sync)" -H 'Accept-Encoding: gzip')" gzip
 
@@ -352,7 +374,7 @@ say "manga" "9 checks"
 section "manga off"
 port=$(printf '%s' "$BASE" | sed -nE 's|^https?://[^:/]+:([0-9]+).*|\1|p')
 off_port=$(( ${port:-3000} + 1 ))
-KCC_BIN=/nonexistent KOBINK_PORT=$off_port PUBLIC_URL="http://127.0.0.1:$off_port" "$BIN" >"$WORK/off.log" 2>&1 &
+KCC_BIN=/nonexistent KOBO_STORE=off KOBINK_PORT=$off_port PUBLIC_URL="http://127.0.0.1:$off_port" "$BIN" >"$WORK/off.log" 2>&1 &
 off=$!
 
 for _ in $(seq 1 20); do
@@ -361,6 +383,8 @@ for _ in $(seq 1 20); do
 done
 
 grep -q "kcc: missing" "$WORK/off.log" || fail "the image without kcc does not say so at startup"
+
+check "store off" "$(curl -s "http://127.0.0.1:$off_port/$KEY/kobo/v1/user/profile")" "{}"
 
 body=$(curl -s "http://127.0.0.1:$off_port/$KEY/drop")
 [[ $body == *"built with KCC"* ]] || fail "the page did not say that KCC is missing"
