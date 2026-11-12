@@ -182,6 +182,8 @@ for _ in $(seq 1 20); do
     grep -q "retention: removed" "$LOG" && break
     sleep 1
 done
+grep -q "retention: covers after 30 days, trash after 30 days" "$LOG" ||
+    fail "the sweep does not say what its policy is"
 [ ! -f "$COVERS/old-149x223.jpg" ] || fail "an expired cover survived the sweep"
 [ ! -d "$LIB/.kobink-trash/1000" ] || fail "an expired trash entry survived the sweep"
 [ -f "$COVERS/fresh-149x223.jpg" ] || fail "the sweep removed a fresh cover"

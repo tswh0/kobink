@@ -1,6 +1,7 @@
 use std::{
     fs,
     path::Path,
+    sync::OnceLock,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -13,6 +14,9 @@ const SECONDS_PER_DAY: u64 = 24 * 60 * 60;
 
 pub fn sweep(library_path: &str, covers_dir: &str) {
     let covers = days("COVER_CACHE_DAYS");
+    let trash = days("TRASH_DAYS");
+
+    announce(covers, trash);
 
     if covers > 0 {
         let removed = prune_files(Path::new(covers_dir), covers);
@@ -22,14 +26,32 @@ pub fn sweep(library_path: &str, covers_dir: &str) {
         }
     }
 
-    let trash = days("TRASH_DAYS");
-
     if trash > 0 {
         let removed = prune_trash(&Path::new(library_path).join(TRASH), trash);
 
         if removed > 0 {
             info!("retention: removed {removed} trash entr(y/ies) older than {trash} days");
         }
+    }
+}
+
+fn announce(covers: u64, trash: u64) {
+    static ANNOUNCED: OnceLock<()> = OnceLock::new();
+
+    if ANNOUNCED.set(()).is_ok() {
+        info!(
+            "retention: covers {}, trash {}",
+            policy(covers),
+            policy(trash)
+        );
+    }
+}
+
+fn policy(days: u64) -> String {
+    if days == 0 {
+        "kept forever".to_string()
+    } else {
+        format!("after {days} days")
     }
 }
 
