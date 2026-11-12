@@ -12,6 +12,7 @@ use crate::{
     library::{
         create_download_router,
         models::{refresh, LibraryState},
+        retention,
     },
 };
 use std::{
@@ -29,12 +30,14 @@ pub fn port() -> u16 {
 }
 
 pub async fn start_server() {
-    let library_path =
-        std::env::var("LIBRARY_PATH").unwrap_or_else(|_| "/library".to_string());
-    let initial_state = LibraryState::new(&library_path);
-    let arcref = Arc::new(Mutex::new(initial_state));
+    let library_path = std::env::var("LIBRARY_PATH").unwrap_or_else(|_| "/library".to_string());
+    let covers_path =
+        std::env::var("COVER_CACHE_DIR").unwrap_or_else(|_| "/app/data/covers".to_string());
+
+    let arcref = Arc::new(Mutex::new(LibraryState::empty(&library_path)));
 
     spawn_library_refresh(Arc::clone(&arcref));
+    spawn_retention(library_path.clone(), covers_path);
 
     let api_key = auth::api_key();
     let app = Router::<Arc<Mutex<LibraryState>>>::new()
@@ -61,10 +64,74 @@ pub async fn start_server() {
 
     info!("listening on {}", addr);
 
-    if let Err(error) = axum::serve(listener, app).await {
+    spawn_scan(Arc::clone(&arcref));
+    spawn_kcc_check();
+
+    if let Err(error) = axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown())
+        .await
+    {
         tracing::error!("server stopped: {error}");
         std::process::exit(1);
     }
+}
+
+fn spawn_scan(library: Arc<Mutex<LibraryState>>) {
+    tokio::spawn(async move {
+        refresh(library).await;
+    });
+}
+
+fn spawn_kcc_check() {
+    tokio::task::spawn_blocking(|| {
+        info!(
+            "kcc: {}",
+            if drop::kcc_available() {
+                "found, CBZ and PDF are converted for the e-reader"
+            } else {
+                "missing, only EPUB is accepted"
+            }
+        );
+    });
+}
+
+fn spawn_retention(library_path: String, covers_path: String) {
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(6 * 60 * 60));
+
+        loop {
+            ticker.tick().await;
+
+            let (library_path, covers_path) = (library_path.clone(), covers_path.clone());
+
+            if tokio::task::spawn_blocking(move || retention::sweep(&library_path, &covers_path))
+                .await
+                .is_err()
+            {
+                break;
+            }
+        }
+    });
+}
+
+async fn shutdown() {
+    let mut terminate = match tokio::signal::unix::signal(
+        tokio::signal::unix::SignalKind::terminate(),
+    ) {
+        Ok(signal) => signal,
+        Err(error) => {
+            tracing::warn!("cannot listen for SIGTERM: {error}");
+
+            std::future::pending::<tokio::signal::unix::Signal>().await
+        }
+    };
+
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => {}
+        _ = terminate.recv() => {}
+    }
+
+    info!("shutting down");
 }
 
 fn spawn_library_refresh(library: Arc<Mutex<LibraryState>>) {
@@ -91,9 +158,17 @@ fn spawn_library_refresh(library: Arc<Mutex<LibraryState>>) {
     info!("library refresh every {}s", interval_seconds);
 }
 
-async fn security_headers(request: axum::extract::Request, next: middleware::Next) -> axum::response::Response {
+async fn security_headers(
+    request: axum::extract::Request,
+    next: middleware::Next,
+) -> axum::response::Response {
+    let kobo = request.uri().path().contains("/kobo/v1/");
     let mut response = next.run(request).await;
     let headers = response.headers_mut();
+
+    if kobo {
+        headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    }
 
     headers.insert(
         header::X_CONTENT_TYPE_OPTIONS,

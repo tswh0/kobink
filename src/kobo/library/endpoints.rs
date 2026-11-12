@@ -1,4 +1,7 @@
-use std::sync::{Arc, Mutex};
+use std::{
+    io::Write,
+    sync::{Arc, Mutex},
+};
 
 use axum::{
     body::Bytes,
@@ -9,6 +12,7 @@ use axum::{
     Json, Router,
 };
 
+use flate2::{write::GzEncoder, Compression};
 use tracing::{debug, info, warn};
 
 use crate::{
@@ -18,9 +22,15 @@ use crate::{
 
 use super::models::{Entitlement, SyncEvent};
 
-static SYNC_CACHE: Mutex<Option<(u64, Bytes)>> = Mutex::new(None);
+static SYNC_CACHE: Mutex<Option<Cached>> = Mutex::new(None);
 
 const SYNCTOKEN_HEADER: &str = "x-kobo-synctoken";
+
+struct Cached {
+    version: u64,
+    json: Bytes,
+    gzip: Bytes,
+}
 
 pub fn create_library_router() -> Router<Arc<Mutex<LibraryState>>> {
     Router::new()
@@ -108,9 +118,9 @@ async fn handle_sync(
         .and_then(|value| value.to_str().ok())
         .and_then(SyncToken::decode);
 
-    let body = match known {
-        Some(token) if token.library == version => Bytes::from_static(b"[]"),
-        _ => sync_body(version, &books),
+    let (body, encoded) = match known {
+        Some(token) if token.library == version => (Bytes::from_static(b"[]"), false),
+        _ => sync_body(version, &books, accepts_gzip(&headers)),
     };
 
     let mut response_headers = HeaderMap::new();
@@ -122,23 +132,58 @@ async fn handle_sync(
         HeaderValue::from_static("application/json; charset=utf-8"),
     );
 
+    if encoded {
+        response_headers.insert(header::CONTENT_ENCODING, HeaderValue::from_static("gzip"));
+        response_headers.insert(header::VARY, HeaderValue::from_static("accept-encoding"));
+    }
+
     (StatusCode::OK, response_headers, body).into_response()
 }
 
-fn sync_body(version: u64, books: &[Book]) -> Bytes {
-    let mut cache = SYNC_CACHE
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+fn accepts_gzip(headers: &HeaderMap) -> bool {
+    headers
+        .get(header::ACCEPT_ENCODING)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.to_ascii_lowercase().contains("gzip"))
+}
 
-    if let Some((cached_version, body)) = cache.as_ref() {
-        if *cached_version == version {
-            return body.clone();
+fn gzip(data: &[u8]) -> Vec<u8> {
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
+    let _ = encoder.write_all(data);
+
+    encoder.finish().unwrap_or_default()
+}
+
+fn sync_body(version: u64, books: &[Book], compressed: bool) -> (Bytes, bool) {
+    {
+        let cache = SYNC_CACHE
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+        if let Some(cached) = cache.as_ref().filter(|cached| cached.version == version) {
+            return if compressed {
+                (cached.gzip.clone(), true)
+            } else {
+                (cached.json.clone(), false)
+            };
         }
     }
 
     let events: Vec<SyncEvent> = books.iter().map(SyncEvent::new).collect();
-    let body = Bytes::from(serde_json::to_vec(&events).unwrap_or_default());
-    *cache = Some((version, body.clone()));
+    let json = Bytes::from(serde_json::to_vec(&events).unwrap_or_default());
+    let zipped = Bytes::from(gzip(&json));
 
-    body
+    *SYNC_CACHE
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(Cached {
+        version,
+        json: json.clone(),
+        gzip: zipped.clone(),
+    });
+
+    if compressed {
+        (zipped, true)
+    } else {
+        (json, false)
+    }
 }

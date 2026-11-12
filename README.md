@@ -61,6 +61,7 @@ appends `/v1` itself. Press Sync afterwards.
   (~400 MB) or a local `KOBINK_TARGET=conversion` build; plain `latest` takes EPUB only.
 - Deleting a book on the reader moves its file into `.kobink-trash/` inside the library, dated.
   `LIBRARY_TRASH=off` deletes it outright instead.
+- Downloads stream and answer `Range`, so an interrupted transfer resumes instead of starting over.
 - The folder is read again every ten minutes. Drop a file in, wait, sync.
 - No database. One container, two folders.
 
@@ -77,7 +78,9 @@ against the real binary on every push. The SQL dependencies and demo endpoints a
 ## Notes
 
 - HTTP on your LAN is fine. Behind a reverse proxy use HTTPS and keep the link to yourself.
-- `.epub` for books, `.kepub.epub` (KCC) for manga.
+- `.epub` for books, `.kepub.epub` (KCC) for manga; a CBZ is counted in the scan but never synced.
+- `COVER_CACHE_DAYS` and `TRASH_DAYS` (default 30, `0` keeps forever) prune the cover cache and
+  `.kobink-trash`.
 - Set `API_KEY` if you want to pick the code yourself instead of using the generated one.
 - A book that refuses to update: delete it on the device and sync again.
 - The image is distroless, so there is no shell inside it. `docker exec -it kobink sh` won't

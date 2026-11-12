@@ -1,15 +1,20 @@
 use std::sync::{Arc, Mutex};
 
 use axum::{
+    body::Body,
     extract::{Path, State},
-    http::{header, HeaderValue, StatusCode},
+    http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::get,
     Router,
 };
+use tokio::io::{AsyncReadExt, AsyncSeekExt, SeekFrom};
+use tokio_util::io::ReaderStream;
 use tracing::warn;
 
 use super::models::LibraryState;
+
+const STREAM_BUFFER: usize = 256 * 1024;
 
 fn attachment_name(name: &str) -> String {
     name.chars()
@@ -28,8 +33,77 @@ pub fn create_download_router() -> Router<Arc<Mutex<LibraryState>>> {
     )
 }
 
+enum Requested {
+    Full,
+    Part(u64, u64),
+    Invalid,
+}
+
+fn requested(headers: &HeaderMap, size: u64) -> Requested {
+    if size == 0 {
+        return Requested::Full;
+    }
+
+    let Some(value) = headers
+        .get(header::RANGE)
+        .and_then(|value| value.to_str().ok())
+    else {
+        return Requested::Full;
+    };
+
+    let Some(spec) = value.trim().strip_prefix("bytes=") else {
+        return Requested::Full;
+    };
+
+    if spec.contains(',') {
+        return Requested::Full;
+    }
+
+    let Some((start, end)) = spec.split_once('-') else {
+        return Requested::Full;
+    };
+
+    let (start, end) = (start.trim(), end.trim());
+
+    if start.is_empty() {
+        let Ok(suffix) = end.parse::<u64>() else {
+            return Requested::Full;
+        };
+
+        if suffix == 0 {
+            return Requested::Invalid;
+        }
+
+        return Requested::Part(size.saturating_sub(suffix), size - 1);
+    }
+
+    let Ok(start) = start.parse::<u64>() else {
+        return Requested::Full;
+    };
+
+    if start >= size {
+        return Requested::Invalid;
+    }
+
+    let end = if end.is_empty() {
+        size - 1
+    } else {
+        match end.parse::<u64>() {
+            Ok(end) => end.min(size - 1),
+            Err(_) => return Requested::Full,
+        }
+    };
+
+    if end < start {
+        return Requested::Invalid;
+    }
+
+    Requested::Part(start, end)
+}
+
 async fn handle_file_download(
     Path((book_id, _book_format, filename)): Path<(String, String, String)>,
+    headers: HeaderMap,
     State(library): State<Arc<Mutex<LibraryState>>>,
 ) -> Response {
     let book = {
@@ -43,40 +117,73 @@ async fn handle_file_download(
         return StatusCode::NOT_FOUND.into_response();
     };
 
-    let data = match tokio::fs::read(&book.path).await {
-        Ok(data) => data,
+    let size = match tokio::fs::metadata(&book.path).await {
+        Ok(metadata) => metadata.len(),
+        Err(error) => {
+            warn!("cannot stat {}: {error}", book.path.display());
+            return StatusCode::NOT_FOUND.into_response();
+        }
+    };
+
+    let (start, end, partial) = match requested(&headers, size) {
+        Requested::Full => (0, size.saturating_sub(1), false),
+        Requested::Part(start, end) => (start, end, true),
+        Requested::Invalid => {
+            return (
+                StatusCode::RANGE_NOT_SATISFIABLE,
+                [(header::CONTENT_RANGE, format!("bytes */{size}"))],
+            )
+                .into_response();
+        }
+    };
+
+    let length = (end + 1).saturating_sub(start);
+
+    let mut file = match tokio::fs::File::open(&book.path).await {
+        Ok(file) => file,
         Err(error) => {
             warn!("cannot read {}: {error}", book.path.display());
             return StatusCode::NOT_FOUND.into_response();
         }
     };
 
+    if start > 0 {
+        if let Err(error) = file.seek(SeekFrom::Start(start)).await {
+            warn!("cannot seek {}: {error}", book.path.display());
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    }
+
     let content_type = match book.format() {
         "KEPUB" => "application/x-kobo-epub+zip",
         _ => "application/epub+zip",
     };
 
-    (
-        [
-            (
-                header::CONTENT_TYPE,
-                HeaderValue::from_static(content_type),
-            ),
-            (
-                header::CONTENT_LENGTH,
-                HeaderValue::from_str(&data.len().to_string())
-                    .unwrap_or_else(|_| HeaderValue::from_static("0")),
-            ),
-            (
-                header::CONTENT_DISPOSITION,
-                HeaderValue::from_str(&format!(
-                    "attachment; filename=\"{}\"",
-                    attachment_name(&filename)
-                ))
-                .unwrap_or_else(|_| HeaderValue::from_static("attachment")),
-            ),
-        ],
-        data,
-    )
-        .into_response()
+    let mut response = Response::builder()
+        .status(if partial {
+            StatusCode::PARTIAL_CONTENT
+        } else {
+            StatusCode::OK
+        })
+        .header(header::CONTENT_TYPE, content_type)
+        .header(header::CONTENT_LENGTH, length.to_string())
+        .header(
+            header::CONTENT_DISPOSITION,
+            format!("attachment; filename=\"{}\"", attachment_name(&filename)),
+        )
+        .header(header::ACCEPT_RANGES, "bytes")
+        .header(header::CACHE_CONTROL, "no-store");
+
+    if partial {
+        response = response.header(header::CONTENT_RANGE, format!("bytes {start}-{end}/{size}"));
+    }
+
+    let body = Body::from_stream(ReaderStream::with_capacity(
+        file.take(length),
+        STREAM_BUFFER,
+    ));
+
+    response
+        .body(body)
+        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
 }

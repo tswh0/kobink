@@ -1,6 +1,6 @@
 use epub::doc::EpubDoc;
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, HashSet},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
     time::{SystemTime, UNIX_EPOCH},
@@ -105,14 +105,11 @@ pub struct LibraryState {
 }
 
 impl LibraryState {
-    pub fn new(library_path: &str) -> Self {
-        let books = scan(library_path, &[]);
-        let version = version(&books);
-
+    pub fn empty(library_path: &str) -> Self {
         Self {
             path: library_path.to_string(),
-            books: Arc::new(books),
-            version,
+            books: Arc::new(Vec::new()),
+            version: version(&[]),
         }
     }
 
@@ -374,6 +371,8 @@ pub async fn refresh(library: Arc<Mutex<LibraryState>>) {
         (state.path.clone(), state.books.clone())
     };
 
+    let known: HashSet<Uuid> = previous.iter().map(|book| book.id).collect();
+
     let books = match tokio::task::spawn_blocking(move || scan(&path, &previous)).await {
         Ok(books) => books,
         Err(error) => {
@@ -384,6 +383,11 @@ pub async fn refresh(library: Arc<Mutex<LibraryState>>) {
 
     let version = version(&books);
     let count = books.len();
+    let added: Vec<Book> = books
+        .iter()
+        .filter(|book| !known.contains(&book.id))
+        .cloned()
+        .collect();
 
     {
         let mut state = library
@@ -394,6 +398,14 @@ pub async fn refresh(library: Arc<Mutex<LibraryState>>) {
     }
 
     tracing::info!("library refreshed: {} books", count);
+
+    if !added.is_empty() {
+        tokio::task::spawn_blocking(move || {
+            for book in &added {
+                crate::kobo::covers::prewarm(book);
+            }
+        });
+    }
 }
 
 fn hidden(entry: &walkdir::DirEntry) -> bool {

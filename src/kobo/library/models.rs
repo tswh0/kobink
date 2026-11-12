@@ -1,5 +1,7 @@
 #![allow(non_snake_case)]
 
+use std::time::SystemTime;
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -111,7 +113,9 @@ pub struct Series {
     pub Id: Uuid,
 }
 
-fn kobo_timestamp(time: DateTime<Utc>) -> String {
+fn stamp(time: Option<SystemTime>) -> String {
+    let time = time.map(DateTime::<Utc>::from).unwrap_or_else(Utc::now);
+
     time.format("%Y-%m-%dT%H:%M:%SZ").to_string()
 }
 
@@ -125,7 +129,7 @@ impl SyncEvent {
 
 impl Entitlement {
     pub fn new(book: &Book) -> Self {
-        let mut entitlement = Self::empty(book.id);
+        let mut entitlement = Self::empty(book.id, &stamp(book.modified));
         entitlement.BookMetadata.Title = book.title.clone();
         entitlement.BookMetadata.Description = book.description.clone();
         entitlement.BookMetadata.DownloadUrls = book.download_urls();
@@ -146,20 +150,21 @@ impl Entitlement {
         entitlement
     }
 
-    fn empty(uuid: Uuid) -> Self {
-        let now = kobo_timestamp(Utc::now());
+    fn empty(uuid: Uuid, stamp: &str) -> Self {
 
         Self {
             BookEntitlement: BookEntitlement {
                 Accessibility: "Full".to_string(),
-                ActivePeriod: ActivePeriod { From: now.clone() },
-                Created: now.clone(),
+                ActivePeriod: ActivePeriod {
+                    From: stamp.to_string(),
+                },
+                Created: stamp.to_string(),
                 CrossRevisionId: uuid,
                 Id: uuid,
                 IsRemoved: false,
                 IsHiddenFromArchive: false,
                 IsLocked: false,
-                LastModified: now.clone(),
+                LastModified: stamp.to_string(),
                 OriginCategory: "Imported".to_string(),
                 RevisionId: uuid,
                 Status: "Active".to_string(),
@@ -186,7 +191,7 @@ impl Entitlement {
                 IsSocialEnabled: true,
                 Language: "en".to_string(),
                 PhoneticPronunciations: PhoneticPronunciations {},
-                PublicationDate: now,
+                PublicationDate: stamp.to_string(),
                 Publisher: Publisher {
                     Imprint: "".to_string(),
                     Name: "".to_string(),

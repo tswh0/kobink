@@ -26,6 +26,8 @@ services:
       API_KEY_FILE: /app/data/api-key
       COVER_CACHE_DIR: /app/data/covers
       LIBRARY_REFRESH_SECONDS: ${LIBRARY_REFRESH_SECONDS:-600}
+      COVER_CACHE_DAYS: ${COVER_CACHE_DAYS:-30}
+      TRASH_DAYS: ${TRASH_DAYS:-30}
       RUST_LOG: ${RUST_LOG:-info}
     volumes:
       - "${LIBRARY_DIR:-./library}:/library${LIBRARY_WRITE:-:ro}"

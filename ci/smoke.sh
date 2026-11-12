@@ -115,6 +115,14 @@ section "fixtures"
 python3 "$DIR/fixtures.py" "$LIB"
 python3 "$DIR/fixtures.py" --manga "$WORK/manga"
 
+FRESH=$(date +%s)
+mkdir -p "$LIB/.kobink-trash/1000" "$LIB/.kobink-trash/$FRESH"
+printf old > "$COVERS/old-149x223.jpg"
+printf fresh > "$COVERS/fresh-149x223.jpg"
+printf gone > "$LIB/.kobink-trash/1000/gone.epub"
+printf keep > "$LIB/.kobink-trash/$FRESH/keep.epub"
+touch -d '60 days ago' "$COVERS/old-149x223.jpg" "$LIB/.kobink-trash/1000/gone.epub"
+
 cat > "$WORK/kcc-c2e" <<'STUB'
 #!/bin/sh
 out=""
@@ -150,6 +158,11 @@ done
 [ "$(status "$BASE/")" != "000" ] || fail "server never answered on $BASE"
 say "server" "up"
 
+for _ in $(seq 1 30); do
+    grep -q "loaded " "$LOG" && grep -q "kcc: " "$LOG" && break
+    sleep 1
+done
+
 if "$BIN" --health; then
     say "health flag" "0"
 else
@@ -163,6 +176,17 @@ grep -q "says hello" "$LOG" || fail "startup log has no hello line"
 grep -q "kcc: found" "$LOG" || fail "startup log does not report kcc as found"
 grep -q "loaded 5 books from .* (0 unreadable, 1 not synced: cbz 1)" "$LOG" ||
     fail "the scan does not count the files it cannot sync"
+
+section "retention"
+for _ in $(seq 1 20); do
+    grep -q "retention: removed" "$LOG" && break
+    sleep 1
+done
+[ ! -f "$COVERS/old-149x223.jpg" ] || fail "an expired cover survived the sweep"
+[ ! -d "$LIB/.kobink-trash/1000" ] || fail "an expired trash entry survived the sweep"
+[ -f "$COVERS/fresh-149x223.jpg" ] || fail "the sweep removed a fresh cover"
+[ -d "$LIB/.kobink-trash/$FRESH" ] || fail "the sweep removed a fresh trash entry"
+say "retention" "expired removed, fresh kept"
 
 section "auth"
 check "without key" "$(status "$BASE/kobo/v1/user/profile")" 404
@@ -202,6 +226,8 @@ json "epub formats" "$babel" '.NewEntitlement.BookMetadata.DownloadUrls | map(.F
 
 section "transport"
 check "gzip" "$(header content-encoding "$(api /kobo/v1/library/sync)" -H 'Accept-Encoding: gzip')" gzip
+json "gzip body" "$(curl -s --compressed "$(api /kobo/v1/library/sync)")" 'length' 5
+check "sync no-store" "$(header cache-control "$(api /kobo/v1/library/sync)")" no-store
 
 token=$(tr -d '\r' < "$HDRS" | awk 'tolower($1) == "x-kobo-synctoken:" { print $2 }')
 [ -n "$token" ] || fail "sync: no x-kobo-synctoken header"
@@ -233,6 +259,23 @@ check "download" "$(status "$url")" 200
 check "download type" "$(header content-type "$url")" application/x-kobo-epub+zip
 check "download disposition" "$(header_value content-disposition "$url")" 'attachment; filename="BLAME!_Master_Edition_v01.kepub.epub"' 
 check "download nosniff" "$(header x-content-type-options "$url")" nosniff
+check "download cache" "$(header cache-control "$url")" no-store
+check "accept ranges" "$(header accept-ranges "$url")" bytes
+
+grab size "$blame" '.NewEntitlement.BookMetadata.DownloadUrls[0].Size'
+
+check "range status" "$(status -r 5000-5999 "$url")" 206
+check "range length" "$(curl -s -r 5000-5999 -o /dev/null -w '%{size_download}' "$url")" 1000
+check "range header" "$(header_value content-range "$url" -r 5000-5999)" "bytes 5000-5999/$size"
+
+curl -s -r 5000-5999 -o "$WORK/mid.bin" "$url"
+tail -c +5001 "$LIB/BLAME!/BLAME! Master Edition v01.kepub.epub" | head -c 1000 > "$WORK/mid.want"
+cmp -s "$WORK/mid.bin" "$WORK/mid.want" || fail "the ranged download does not match the file at that offset"
+say "range bytes" "match"
+
+check "suffix range" "$(curl -s -r -100 -o /dev/null -w '%{size_download}' "$url")" 100
+check "open range" "$(curl -s -r 1000- -o /dev/null -w '%{size_download}' "$url")" "$((size - 1000))"
+check "unsatisfiable range" "$(status -r "$size-" "$url")" 416
 
 grab epub_url "$babel" '.NewEntitlement.BookMetadata.DownloadUrls[0].Url'
 check "epub download" "$(status "$epub_url")" 200
