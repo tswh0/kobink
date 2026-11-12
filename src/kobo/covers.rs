@@ -19,7 +19,7 @@ use image::{
 };
 use tracing::warn;
 
-use crate::library::models::LibraryState;
+use crate::library::models::{Book, LibraryState};
 
 const DEFAULT_DIMENSION: u32 = 600;
 const MAX_DIMENSION: u32 = 3000;
@@ -124,6 +124,19 @@ fn cover(book_id: &str, path: PathBuf, width: u32, height: u32) -> Option<Vec<u8
     }
 
     Some(requested)
+}
+
+pub fn prewarm(book: &Book) {
+    let id = book.id.to_string();
+
+    if PREWARM
+        .iter()
+        .all(|(width, height)| cache_path(&id, *width, *height).is_some_and(|path| path.exists()))
+    {
+        return;
+    }
+
+    let _ = cover(&id, book.path.clone(), PREWARM[0].0, PREWARM[0].1);
 }
 
 fn decode(data: &[u8]) -> Option<DynamicImage> {
