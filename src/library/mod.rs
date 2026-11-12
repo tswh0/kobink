@@ -1,3 +1,4 @@
+pub mod comic;
 pub mod endpoints;
 pub mod models;
 

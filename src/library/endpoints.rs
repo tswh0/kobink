@@ -52,6 +52,7 @@ async fn handle_file_download(
     };
 
     let content_type = match book.format() {
+        "CBZ" => "application/vnd.comicbook+zip",
         "KEPUB" => "application/x-kobo-epub+zip",
         _ => "application/epub+zip",
     };

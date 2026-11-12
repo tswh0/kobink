@@ -21,7 +21,7 @@ use uuid::Uuid;
 
 use crate::{
     auth::{api_key, public_base},
-    library::models::{refresh, LibraryState},
+    library::models::{clean_title, refresh, stem, LibraryState},
 };
 
 const PAGE: &str = include_str!("drop.html");
@@ -427,32 +427,6 @@ fn classify(name: &str) -> Option<Kind> {
     } else {
         None
     }
-}
-
-fn stem(name: &str) -> String {
-    Path::new(name)
-        .file_stem()
-        .map(|stem| stem.to_string_lossy().into_owned())
-        .unwrap_or_else(|| name.to_string())
-}
-
-fn clean_title(title: &str) -> String {
-    let mut cleaned = String::with_capacity(title.len());
-    let mut depth = 0usize;
-
-    for character in title.chars() {
-        match character {
-            '(' | '[' => depth += 1,
-            ')' | ']' => depth = depth.saturating_sub(1),
-            '_' if depth == 0 => cleaned.push(' '),
-            _ if depth == 0 => cleaned.push(character),
-            _ => {}
-        }
-    }
-
-    let cleaned = cleaned.trim_end_matches(|c: char| c == '.' || c.is_whitespace());
-
-    cleaned.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 fn series(title: &str) -> String {

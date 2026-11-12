@@ -1,6 +1,7 @@
 use epub::doc::EpubDoc;
 use std::{
     collections::HashMap,
+    ffi::OsStr,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
     time::{SystemTime, UNIX_EPOCH},
@@ -11,9 +12,11 @@ use walkdir::WalkDir;
 use crate::{
     auth::{api_key, public_base},
     kobo::library::models::DownloadUrl,
+    library::comic,
 };
 
 pub const TRASH: &str = ".kobink-trash";
+pub const COMIC_FORMAT: &str = "CBZ";
 
 #[derive(Debug, Clone)]
 pub struct BookSeries {
@@ -36,6 +39,13 @@ impl BookSeries {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kind {
+    Epub,
+    Kepub,
+    Comic,
+}
+
 #[derive(Debug, Clone)]
 pub struct Book {
     pub id: Uuid,
@@ -46,24 +56,21 @@ pub struct Book {
     pub size: u64,
     pub modified: Option<SystemTime>,
     pub fixed_layout: bool,
-    pub is_kepub: bool,
+    pub kind: Kind,
     pub series: Option<BookSeries>,
 }
 
 impl Book {
     pub fn format(&self) -> &'static str {
-        if self.is_kepub {
-            "KEPUB"
-        } else {
-            "EPUB"
-        }
+        self.formats()[0]
     }
 
     pub fn formats(&self) -> &'static [&'static str] {
-        match (self.fixed_layout, self.is_kepub) {
-            (true, _) => &["EPUB3FL"],
-            (false, true) => &["KEPUB"],
-            (false, false) => &["EPUB3", "EPUB"],
+        match (self.kind, self.fixed_layout) {
+            (Kind::Comic, _) => &[COMIC_FORMAT],
+            (_, true) => &["EPUB3FL"],
+            (Kind::Kepub, false) => &["KEPUB"],
+            (Kind::Epub, false) => &["EPUB3", "EPUB"],
         }
     }
 
@@ -171,7 +178,7 @@ pub fn scan(library_path: &str, previous: &[Book]) -> Vec<Book> {
         .into_iter()
         .filter_entry(|entry| entry.depth() == 0 || !hidden(entry))
         .filter_map(|e| e.ok())
-        .filter(|e| e.path().extension().is_some_and(|ext| ext == "epub"))
+        .filter(|e| e.path().extension().is_some_and(indexed))
     {
         let metadata = match entry.metadata() {
             Ok(metadata) => metadata,
@@ -197,7 +204,7 @@ pub fn scan(library_path: &str, previous: &[Book]) -> Vec<Book> {
             Ok(None) => unreadable += 1,
             Err(_) => {
                 unreadable += 1;
-                tracing::warn!("epub at {} panicked while parsing", entry.path().display());
+                tracing::warn!("book at {} panicked while parsing", entry.path().display());
             }
         }
     }
@@ -212,7 +219,17 @@ pub fn scan(library_path: &str, previous: &[Book]) -> Vec<Book> {
     books
 }
 
+fn indexed(extension: &OsStr) -> bool {
+    let extension = extension.to_string_lossy();
+
+    extension.eq_ignore_ascii_case("epub") || extension.eq_ignore_ascii_case("cbz")
+}
+
 fn read_book(path: &Path, size: u64, modified: Option<SystemTime>) -> Option<Book> {
+    if path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("cbz")) {
+        return read_comic(path, size, modified);
+    }
+
     let epub = match EpubDoc::new(path) {
         Ok(epub) => epub,
         Err(error) => {
@@ -239,8 +256,34 @@ fn read_book(path: &Path, size: u64, modified: Option<SystemTime>) -> Option<Boo
         size,
         modified,
         fixed_layout,
-        is_kepub: filename.ends_with(".kepub.epub"),
+        kind: if filename.ends_with(".kepub.epub") {
+            Kind::Kepub
+        } else {
+            Kind::Epub
+        },
         series,
+    })
+}
+
+fn read_comic(path: &Path, size: u64, modified: Option<SystemTime>) -> Option<Book> {
+    let mut archive = comic::open(path)?;
+
+    let filename = file_name(path);
+    let title = clean_title(&stem(&filename));
+    let author = comic::author(&mut archive).unwrap_or_else(|| "Unknown author".to_string());
+    let id = book_id(&format!("{title}|{author}|{filename}"));
+
+    Some(Book {
+        id,
+        series: series_from_title(&title),
+        title,
+        author,
+        description: String::new(),
+        path: path.to_path_buf(),
+        size,
+        modified,
+        fixed_layout: true,
+        kind: Kind::Comic,
     })
 }
 
@@ -395,4 +438,30 @@ pub async fn retire(library_path: &str, path: &Path) -> std::io::Result<Option<P
             Ok(Some(target))
         }
     }
+}
+
+pub fn stem(name: &str) -> String {
+    Path::new(name)
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().into_owned())
+        .unwrap_or_else(|| name.to_string())
+}
+
+pub fn clean_title(title: &str) -> String {
+    let mut cleaned = String::with_capacity(title.len());
+    let mut depth = 0usize;
+
+    for character in title.chars() {
+        match character {
+            '(' | '[' => depth += 1,
+            ')' | ']' => depth = depth.saturating_sub(1),
+            '_' if depth == 0 => cleaned.push(' '),
+            _ if depth == 0 => cleaned.push(character),
+            _ => {}
+        }
+    }
+
+    let cleaned = cleaned.trim_end_matches(|c: char| c == '.' || c.is_whitespace());
+
+    cleaned.split_whitespace().collect::<Vec<_>>().join(" ")
 }

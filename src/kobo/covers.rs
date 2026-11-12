@@ -19,7 +19,10 @@ use image::{
 };
 use tracing::warn;
 
-use crate::library::models::LibraryState;
+use crate::library::{
+    comic,
+    models::{Book, Kind, LibraryState},
+};
 
 const DEFAULT_DIMENSION: u32 = 600;
 const MAX_DIMENSION: u32 = 3000;
@@ -40,22 +43,21 @@ async fn handle_cover(
     State(library): State<Arc<Mutex<LibraryState>>>,
     Path((book_id, width, height, _)): Path<(String, String, String, String)>,
 ) -> Response {
-    let path = {
+    let book = {
         let library = library
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        library.find_book_by_id(&book_id).map(|book| book.path.clone())
+        library.find_book_by_id(&book_id).cloned()
     };
 
-    let Some(path) = path else {
+    let Some(book) = book else {
         return StatusCode::NOT_FOUND.into_response();
     };
 
     let width = dimension(&width);
     let height = dimension(&height);
-    let id = book_id.clone();
 
-    let rendered = tokio::task::spawn_blocking(move || cover(&id, path, width, height))
+    let rendered = tokio::task::spawn_blocking(move || cover(&book, width, height))
         .await
         .ok()
         .flatten();
@@ -85,18 +87,19 @@ fn dimension(value: &str) -> u32 {
         .min(MAX_DIMENSION)
 }
 
-fn cover(book_id: &str, path: PathBuf, width: u32, height: u32) -> Option<Vec<u8>> {
-    if let Some(bytes) = cache_path(book_id, width, height).and_then(|path| fs::read(path).ok()) {
+fn cover(book: &Book, width: u32, height: u32) -> Option<Vec<u8>> {
+    let id = book.id.to_string();
+
+    if let Some(bytes) = cache_path(&id, width, height).and_then(|path| fs::read(path).ok()) {
         return Some(bytes);
     }
 
-    let mut doc = EpubDoc::new(&path).ok()?;
-    let (data, _) = doc.get_cover()?;
+    let data = source(book)?;
 
     if data.len() > MAX_COVER_BYTES {
         warn!(
             "cover of {} is {} bytes, over the {} byte limit",
-            path.display(),
+            book.path.display(),
             data.len(),
             MAX_COVER_BYTES
         );
@@ -104,12 +107,12 @@ fn cover(book_id: &str, path: PathBuf, width: u32, height: u32) -> Option<Vec<u8
     }
 
     let Some(decoded) = decode(&data) else {
-        warn!("cannot decode the cover of {}", path.display());
+        warn!("cannot decode the cover of {}", book.path.display());
         return None;
     };
 
     let requested = render(&decoded, width, height)?;
-    store(book_id, width, height, &requested);
+    store(&id, width, height, &requested);
 
     for (warm_width, warm_height) in PREWARM {
         if (warm_width, warm_height) == (width, height) {
@@ -119,11 +122,24 @@ fn cover(book_id: &str, path: PathBuf, width: u32, height: u32) -> Option<Vec<u8
             continue;
         }
         if let Some(bytes) = render(&decoded, warm_width, warm_height) {
-            store(book_id, warm_width, warm_height, &bytes);
+            store(&id, warm_width, warm_height, &bytes);
         }
     }
 
     Some(requested)
+}
+
+fn source(book: &Book) -> Option<Vec<u8>> {
+    match book.kind {
+        Kind::Comic => comic::cover(
+            &mut comic::open(&book.path)?,
+            MAX_COVER_BYTES as u64 + 1,
+        ),
+        _ => {
+            let mut doc = EpubDoc::new(&book.path).ok()?;
+            doc.get_cover().map(|(data, _)| data)
+        }
+    }
 }
 
 fn decode(data: &[u8]) -> Option<DynamicImage> {

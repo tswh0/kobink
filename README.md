@@ -56,6 +56,7 @@ appends `/v1` itself. Press Sync afterwards.
 - Volumes arrive as a series with the right numbering. The name comes from the book's metadata,
   or from the title if the book has none (`Fire Punch v03`).
 - A sync with nothing new costs a few kilobytes.
+- CBZ archives sync as they are, from the folder or the drop page; the reader opens them natively.
 - A book-drop page at the domain root takes EPUB, CBZ and PDF from the browser, several at once. CBZ and PDF are
   converted with [KCC](https://github.com/ciromattia/kcc) for your e-reader, which needs `LIBRARY_WRITE=:rw` and `ghcr.io/tswh0/kobink:conversion`
   (~400 MB) or a local `KOBINK_TARGET=conversion` build; plain `latest` takes EPUB only.
@@ -77,7 +78,7 @@ against the real binary on every push. The SQL dependencies and demo endpoints a
 ## Notes
 
 - HTTP on your LAN is fine. Behind a reverse proxy use HTTPS and keep the link to yourself.
-- `.epub` for books, `.kepub.epub` (KCC) for manga.
+- `.epub` for books, `.kepub.epub` and `.cbz` for manga.
 - Set `API_KEY` if you want to pick the code yourself instead of using the generated one.
 - A book that refuses to update: delete it on the device and sync again.
 - The image is distroless, so there is no shell inside it. `docker exec -it kobink sh` won't

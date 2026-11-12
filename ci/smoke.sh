@@ -174,8 +174,8 @@ sync=$(curl -s -D "$HDRS" "$(api /kobo/v1/library/sync)")
 
 book() { printf '%s' "$sync" | jq --arg title "$1" '.[] | select(.NewEntitlement.BookMetadata.Title == $title)'; }
 
-json "books" "$sync" 'length' 5
-json "distinct ids" "$sync" '[.[].NewEntitlement.BookEntitlement.Id] | unique | length' 5
+json "books" "$sync" 'length' 6
+json "distinct ids" "$sync" '[.[].NewEntitlement.BookEntitlement.Id] | unique | length' 6
 json "complete" "$sync" \
     '[.[] | select((.NewEntitlement.BookEntitlement.Id | type) != "string" or (.NewEntitlement.BookMetadata.Title | type) != "string" or (.NewEntitlement.BookMetadata.DownloadUrls | length) == 0)] | length' 0
 
@@ -198,6 +198,28 @@ babel=$(book "Babel")
 json "no series" "$babel" '.NewEntitlement.BookMetadata | has("Series") == false'
 json "epub formats" "$babel" '.NewEntitlement.BookMetadata.DownloadUrls | map(.Format) | join(",")' "EPUB3,EPUB"
 
+section "comic"
+comic=$(book "Soul Eater v01")
+json "comic format" "$comic" '.NewEntitlement.BookMetadata.DownloadUrls | map(.Format) | join(",")' CBZ
+json "comic series" "$comic" '.NewEntitlement.BookMetadata.Series.Name' "Soul Eater"
+json "comic number" "$comic" '.NewEntitlement.BookMetadata.Series.Number == 1'
+
+grab comic_url "$comic" '.NewEntitlement.BookMetadata.DownloadUrls[0].Url'
+grab comic_id "$comic" '.NewEntitlement.BookEntitlement.Id'
+
+check "comic download" "$(status "$comic_url")" 200
+check "comic type" "$(header content-type "$comic_url")" application/vnd.comicbook+zip
+check "comic disposition" "$(header_value content-disposition "$comic_url")" 'attachment; filename="Soul_Eater_v01.cbz"'
+
+curl -s -o "$WORK/comic.cbz" "$comic_url"
+[ "$(sha256sum < "$WORK/comic.cbz")" = "$(sha256sum < "$LIB/Soul Eater v01.cbz")" ] ||
+    fail "the comic download differs from the file in the library"
+say "comic bytes" "identical"
+
+check "comic cover" "$(status "$(api "/$comic_id/355/530/false/image.jpg")")" 200
+read_dims comic_cover "$(api "/$comic_id/1264/1680/80/False/image.jpg")"
+check "comic cover size" "$comic_cover" 800x1200
+
 section "transport"
 check "gzip" "$(header content-encoding "$(api /kobo/v1/library/sync)" -H 'Accept-Encoding: gzip')" gzip
 
@@ -205,7 +227,7 @@ token=$(tr -d '\r' < "$HDRS" | awk 'tolower($1) == "x-kobo-synctoken:" { print $
 [ -n "$token" ] || fail "sync: no x-kobo-synctoken header"
 say "synctoken" "$token"
 json "incremental sync" "$(curl -s -H "x-kobo-synctoken: $token" "$(api /kobo/v1/library/sync)")" 'length' 0
-json "unknown token" "$(curl -s -H 'x-kobo-synctoken: nonsense' "$(api /kobo/v1/library/sync)")" 'length' 5
+json "unknown token" "$(curl -s -H 'x-kobo-synctoken: nonsense' "$(api /kobo/v1/library/sync)")" 'length' 6
 
 section "covers"
 grab book_id "$blame" '.NewEntitlement.BookEntitlement.Id'
@@ -224,7 +246,7 @@ esac
 
 read_dims large "$(api "/$book_id/1264/1680/80/False/image.jpg")"
 check "cover large" "$large" 800x1200
-check "covers cached" "$(find "$COVERS" -type f | wc -l | tr -d ' ')" 3
+check "covers cached" "$(find "$COVERS" -type f | wc -l | tr -d ' ')" 6
 
 section "downloads"
 check "download" "$(status "$url")" 200
@@ -252,7 +274,7 @@ check "multiple files" "$(curl -s "$(api /drop)" | grep -c 'name="file" accept="
 cp "$LIB/BLAME!/BLAME! Master Edition v01.kepub.epub" "$WORK/drop-test.kepub.epub"
 body=$(curl -s -L -F "file=@$WORK/drop-test.kepub.epub" "$(api /drop/upload)")
 [[ $body == *"Book added"* ]] || fail "drop upload did not confirm"
-json "books after drop" "$(curl -s "$(api /kobo/v1/library/sync)")" 'length' 6
+json "books after drop" "$(curl -s "$(api /kobo/v1/library/sync)")" 'length' 7
 
 body=$(curl -s -L -F "file=@$WORK/drop-test.kepub.epub;filename=../evil.epub" "$(api /drop/upload)")
 [[ $body == *"Only .epub, .cbz and .pdf"* ]] || fail "a path in the upload name was accepted"
@@ -288,7 +310,7 @@ check "upload without a cookie" "$(status -X POST -F "file=@$WORK/drop-test.kepu
 
 body=$(curl -s -L -b "$jar" -F "file=@$WORK/drop-test.kepub.epub" "$BASE/upload")
 [[ $body == *"Book added"* ]] || fail "a cookie upload did not confirm"
-json "books after root upload" "$(curl -s "$(api /kobo/v1/library/sync)")" 'length' 6
+json "books after root upload" "$(curl -s "$(api /kobo/v1/library/sync)")" 'length' 7
 rm -f "$LIB/drop-test.kepub.epub"
 
 section "batch"
@@ -297,7 +319,7 @@ cp "$LIB/R.F. Kuang/Babel - Rebecca F. Kuang (2022).epub" "$WORK/two.epub"
 body=$(curl -s -L -F "file=@$WORK/one.epub" -F "file=@$WORK/two.epub" "$(api /drop/upload)")
 [ "$(grep -o "Book added" <<< "$body" | wc -l)" -eq 2 ] || fail "two files in one request did not both confirm"
 [ -f "$LIB/one.epub" ] && [ -f "$LIB/two.epub" ] || fail "a file from the batch is missing"
-json "books after batch" "$(curl -s "$(api /kobo/v1/library/sync)")" 'length' 7
+json "books after batch" "$(curl -s "$(api /kobo/v1/library/sync)")" 'length' 8
 rm -f "$LIB/one.epub" "$LIB/two.epub"
 
 section "delete"
@@ -306,7 +328,7 @@ body=$(curl -s -L -F "file=@$WORK/delete-me.epub" "$(api /drop/upload)")
 [[ $body == *"Book added"* ]] || fail "the book to delete was not added"
 
 sync=$(curl -s "$(api /kobo/v1/library/sync)")
-json "books before delete" "$sync" 'length' 6
+json "books before delete" "$sync" 'length' 7
 
 delete_id=$(printf '%s' "$sync" | jq -r '[.[] | select(.NewEntitlement.BookMetadata.DownloadUrls[0].Url | endswith("delete-me.epub"))][0].NewEntitlement.BookEntitlement.Id')
 [ -n "$delete_id" ] && [ "$delete_id" != "null" ] || fail "cannot find the book to delete in the sync payload"
@@ -315,7 +337,7 @@ check "delete" "$(status -X DELETE "$(api "/kobo/v1/library/$delete_id")")" 204
 check "delete again" "$(status -X DELETE "$(api "/kobo/v1/library/$delete_id")")" 204
 [ ! -f "$LIB/delete-me.epub" ] || fail "the file is still in the library"
 find "$LIB/.kobink-trash" -name "delete-me.epub" | grep -q . || fail "the file is not in the trash"
-json "books after delete" "$(curl -s "$(api /kobo/v1/library/sync)")" 'length' 5
+json "books after delete" "$(curl -s "$(api /kobo/v1/library/sync)")" 'length' 6
 check "delete unknown" "$(status -X DELETE "$(api "/kobo/v1/library/00000000-0000-4000-8000-000000000000")")" 204
 
 section "manga"
@@ -326,7 +348,7 @@ body=$(curl -s -L -F "file=@$WORK/manga/cbz/Fire Punch v03.cbz" -F profile=KoL "
 [ -f "$LIB/Fire Punch v03.kepub.epub" ] || fail "convert: no kepub in the library"
 
 sync=$(curl -s "$(api /kobo/v1/library/sync)")
-json "books after convert" "$sync" 'length' 6
+json "books after convert" "$sync" 'length' 7
 json "converted format" "$(book "Fire Punch v03")" '.NewEntitlement.BookMetadata.DownloadUrls | map(.Format) | join(",")' KEPUB
 json "converted series" "$(book "Fire Punch v03")" '.NewEntitlement.BookMetadata.Series.Name' "Fire Punch"
 rm -f "$LIB/Fire Punch v03.kepub.epub"
