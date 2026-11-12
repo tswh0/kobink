@@ -123,4 +123,6 @@ make_epub(
     layout="pre-paginated",
 )
 
-print(f"fixtures: 5 books in {root}")
+make_cbz(f"{root}/Soul Eater v01.cbz")
+
+print(f"fixtures: 5 books and 1 comic in {root}")

@@ -1,6 +1,6 @@
 use epub::doc::EpubDoc;
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
     time::{SystemTime, UNIX_EPOCH},
@@ -14,6 +14,8 @@ use crate::{
 };
 
 pub const TRASH: &str = ".kobink-trash";
+const SYNCED: &str = "epub";
+const UNSYNCED: [&str; 3] = ["cbz", "cbr", "pdf"];
 
 #[derive(Debug, Clone)]
 pub struct BookSeries {
@@ -161,6 +163,7 @@ pub fn version(books: &[Book]) -> u64 {
 pub fn scan(library_path: &str, previous: &[Book]) -> Vec<Book> {
     let mut books = Vec::new();
     let mut unreadable = 0;
+    let mut skipped: BTreeMap<String, usize> = BTreeMap::new();
 
     let known: HashMap<&Path, &Book> = previous
         .iter()
@@ -171,8 +174,18 @@ pub fn scan(library_path: &str, previous: &[Book]) -> Vec<Book> {
         .into_iter()
         .filter_entry(|entry| entry.depth() == 0 || !hidden(entry))
         .filter_map(|e| e.ok())
-        .filter(|e| e.path().extension().is_some_and(|ext| ext == "epub"))
+        .filter(|e| !e.file_type().is_dir())
     {
+        let format = extension(entry.path());
+
+        if format != SYNCED {
+            if UNSYNCED.contains(&format.as_str()) {
+                *skipped.entry(format).or_default() += 1;
+            }
+
+            continue;
+        }
+
         let metadata = match entry.metadata() {
             Ok(metadata) => metadata,
             Err(_) => continue,
@@ -203,13 +216,34 @@ pub fn scan(library_path: &str, previous: &[Book]) -> Vec<Book> {
     }
 
     tracing::info!(
-        "loaded {} books from {} ({} unreadable)",
+        "loaded {} books from {} ({} unreadable, {} not synced{})",
         books.len(),
         library_path,
-        unreadable
+        unreadable,
+        skipped.values().sum::<usize>(),
+        breakdown(&skipped)
     );
 
     books
+}
+
+fn extension(path: &Path) -> String {
+    path.extension()
+        .map(|extension| extension.to_string_lossy().to_ascii_lowercase())
+        .unwrap_or_default()
+}
+
+fn breakdown(skipped: &BTreeMap<String, usize>) -> String {
+    if skipped.is_empty() {
+        return String::new();
+    }
+
+    let formats: Vec<String> = skipped
+        .iter()
+        .map(|(format, count)| format!("{format} {count}"))
+        .collect();
+
+    format!(": {}", formats.join(", "))
 }
 
 fn read_book(path: &Path, size: u64, modified: Option<SystemTime>) -> Option<Book> {

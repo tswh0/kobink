@@ -161,6 +161,8 @@ version=$("$BIN" --version)
 say "version" "$version"
 grep -q "says hello" "$LOG" || fail "startup log has no hello line"
 grep -q "kcc: found" "$LOG" || fail "startup log does not report kcc as found"
+grep -q "loaded 5 books from .* (0 unreadable, 1 not synced: cbz 1)" "$LOG" ||
+    fail "the scan does not count the files it cannot sync"
 
 section "auth"
 check "without key" "$(status "$BASE/kobo/v1/user/profile")" 404
