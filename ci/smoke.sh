@@ -252,7 +252,10 @@ esac
 
 read_dims large "$(api "/$book_id/1264/1680/80/False/image.jpg")"
 check "cover large" "$large" 800x1200
-check "covers cached" "$(find "$COVERS" -type f | wc -l | tr -d ' ')" 3
+for cover_size in 149x223 355x530 1264x1680; do
+    [ -f "$COVERS/$book_id-$cover_size.jpg" ] || fail "the $cover_size cover of the tested book is not cached"
+done
+say "covers cached" "3 sizes"
 
 section "downloads"
 check "download" "$(status "$url")" 200
