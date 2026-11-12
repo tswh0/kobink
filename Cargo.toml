@@ -24,4 +24,4 @@ uuid = { version = "1.6.1", features = ["v4", "fast-rng", "serde"] }
 walkdir = "2.4.0"
 epub = "2.1.1"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
-zip = "9"
+zip = { version = "9", default-features = false, features = ["deflate"] }
