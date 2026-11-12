@@ -15,10 +15,9 @@ pub fn open(path: &Path) -> Option<ZipArchive<File>> {
 }
 
 pub fn author(archive: &mut ZipArchive<File>) -> Option<String> {
-    let name = archive
-        .file_names()
-        .find(|name| name.to_ascii_lowercase().ends_with(INFO))?
-        .to_string();
+    let name = names(archive)
+        .into_iter()
+        .find(|name| name.to_ascii_lowercase().ends_with(INFO))?;
 
     let mut xml = String::new();
     archive
@@ -45,11 +44,19 @@ pub fn cover(archive: &mut ZipArchive<File>, limit: u64) -> Option<Vec<u8>> {
     (!data.is_empty()).then_some(data)
 }
 
+fn names(archive: &ZipArchive<File>) -> Vec<String> {
+    archive
+        .file_names()
+        .filter_map(|name| name.ok())
+        .map(|name| name.into_owned())
+        .collect()
+}
+
 fn page(archive: &ZipArchive<File>) -> Option<String> {
-    let mut pages: Vec<&str> = archive.file_names().filter(|name| image(name)).collect();
+    let mut pages: Vec<String> = names(archive).into_iter().filter(|name| image(name)).collect();
     pages.sort_unstable();
 
-    pages.first().map(|name| name.to_string())
+    pages.into_iter().next()
 }
 
 fn image(name: &str) -> bool {

@@ -118,7 +118,7 @@ fn cover(book: &Book, width: u32, height: u32) -> Option<Vec<u8>> {
         if (warm_width, warm_height) == (width, height) {
             continue;
         }
-        if cache_path(book_id, warm_width, warm_height).is_some_and(|path| path.exists()) {
+        if cache_path(&id, warm_width, warm_height).is_some_and(|path| path.exists()) {
             continue;
         }
         if let Some(bytes) = render(&decoded, warm_width, warm_height) {
