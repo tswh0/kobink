@@ -78,7 +78,8 @@ against the real binary on every push. The SQL dependencies and demo endpoints a
 ## Notes
 
 - HTTP on your LAN is fine. Behind a reverse proxy use HTTPS and keep the link to yourself.
-- `.epub` for books, `.kepub.epub` and `.cbz` for manga.
+- `.epub` for books, `.kepub.epub` and `.cbz` for manga. `KOBINK_COMIC_FORMAT` overrides the format
+  a CBZ is offered as (`CBZ` by default); a reader that ignores the book wants `EPUB3FL`.
 - Set `API_KEY` if you want to pick the code yourself instead of using the generated one.
 - A book that refuses to update: delete it on the device and sync again.
 - The image is distroless, so there is no shell inside it. `docker exec -it kobink sh` won't

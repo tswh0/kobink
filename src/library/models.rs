@@ -3,7 +3,7 @@ use std::{
     collections::HashMap,
     ffi::OsStr,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, OnceLock},
     time::{SystemTime, UNIX_EPOCH},
 };
 use uuid::Uuid;
@@ -17,6 +17,18 @@ use crate::{
 
 pub const TRASH: &str = ".kobink-trash";
 pub const COMIC_FORMAT: &str = "CBZ";
+
+fn comic_format() -> &'static str {
+    static FORMAT: OnceLock<String> = OnceLock::new();
+
+    FORMAT.get_or_init(|| {
+        std::env::var("KOBINK_COMIC_FORMAT")
+            .ok()
+            .map(|value| value.trim().to_ascii_uppercase())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| COMIC_FORMAT.to_string())
+    })
+}
 
 #[derive(Debug, Clone)]
 pub struct BookSeries {
@@ -65,12 +77,12 @@ impl Book {
         self.formats()[0]
     }
 
-    pub fn formats(&self) -> &'static [&'static str] {
+    pub fn formats(&self) -> Vec<&'static str> {
         match (self.kind, self.fixed_layout) {
-            (Kind::Comic, _) => &[COMIC_FORMAT],
-            (_, true) => &["EPUB3FL"],
-            (Kind::Kepub, false) => &["KEPUB"],
-            (Kind::Epub, false) => &["EPUB3", "EPUB"],
+            (Kind::Comic, _) => vec![comic_format()],
+            (_, true) => vec!["EPUB3FL"],
+            (Kind::Kepub, false) => vec!["KEPUB"],
+            (Kind::Epub, false) => vec!["EPUB3", "EPUB"],
         }
     }
 
@@ -80,7 +92,7 @@ impl Book {
 
     pub fn download_urls(&self) -> Vec<DownloadUrl> {
         self.formats()
-            .iter()
+            .into_iter()
             .map(|format| self.download_url(format))
             .collect()
     }
