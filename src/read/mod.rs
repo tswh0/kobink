@@ -1,4 +1,5 @@
 use std::{
+    cmp::Ordering,
     collections::HashMap,
     io::Cursor,
     path::{Path, PathBuf},
@@ -130,21 +131,34 @@ async fn shelf(
         .await
         .unwrap_or_default();
 
-    let reading = states
-        .values()
-        .filter(|progress| progress.percent > 0.0 && progress.status != "Finished")
-        .count();
+    let active = |state: Option<&Progress>| {
+        state.is_some_and(|progress| {
+            progress.percent > 0.0
+                && progress.status != "Finished"
+                && progress.status != "ReadyToRead"
+        })
+    };
+
+    let reading = states.values().filter(|progress| active(Some(progress))).count();
 
     let mut order: Vec<&Book> = books.iter().collect();
     order.sort_by(|left, right| {
         let left_state = states.get(&left.id.to_string());
         let right_state = states.get(&right.id.to_string());
-        let left_stamp = left_state.map(|state| state.updated).unwrap_or_default();
-        let right_stamp = right_state.map(|state| state.updated).unwrap_or_default();
 
-        right_stamp
-            .cmp(&left_stamp)
-            .then_with(|| left.title.cmp(&right.title))
+        match (active(left_state), active(right_state)) {
+            (true, true) => {
+                let left_stamp = left_state.map(|state| state.updated).unwrap_or_default();
+                let right_stamp = right_state.map(|state| state.updated).unwrap_or_default();
+
+                right_stamp
+                    .cmp(&left_stamp)
+                    .then_with(|| left.title.cmp(&right.title))
+            }
+            (true, false) => Ordering::Less,
+            (false, true) => Ordering::Greater,
+            (false, false) => left.title.cmp(&right.title),
+        }
     });
 
     let mut markup = String::new();
@@ -182,6 +196,7 @@ async fn shelf(
             author = escape(&book.author),
             probe = probe,
         ));
+        markup.push('\n');
     }
 
     let lede = if reading > 0 {
@@ -247,10 +262,7 @@ async fn manifest(
     let fixed = book.fixed_layout;
     let structure = match tokio::task::spawn_blocking(move || structure_of(&path, fixed)).await {
         Ok(Some(structure)) => structure,
-        Ok(None) => {
-            warn!("cannot read the structure of {}", book.path.display());
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
+        Ok(None) => return StatusCode::NOT_FOUND.into_response(),
         Err(error) => {
             warn!("cannot read {}: {error}", book.path.display());
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
@@ -325,7 +337,7 @@ async fn write_progress(
 
     let wanted_id = book_id.clone();
     let stored = tokio::task::spawn_blocking(move || {
-        let mut stored = Progress {
+        let incoming = Progress {
             percent: view.percent.clamp(0.0, 100.0),
             chapter: view.chapter,
             chapter_percent: view.chapter_percent.clamp(0.0, 100.0),
@@ -335,18 +347,12 @@ async fn write_progress(
             } else {
                 view.status
             },
-            ..progress::load(&library_path, &wanted_id).unwrap_or_default()
+            ..Default::default()
         };
 
-        stored.status = if stored.percent >= 99.5 {
-            "Finished".to_string()
-        } else if stored.status == "Finished" && stored.percent < 99.5 {
-            "Reading".to_string()
-        } else {
-            stored.status
-        };
+        let mut merged = progress::merge(progress::load(&library_path, &wanted_id), incoming);
 
-        progress::save(&library_path, &wanted_id, &mut stored)
+        progress::save(&library_path, &wanted_id, &mut merged)
     })
     .await;
 

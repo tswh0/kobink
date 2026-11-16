@@ -352,6 +352,11 @@ json "books after root upload" "$(curl -s "$(api /kobo/v1/library/sync)")" 'leng
 rm -f "$LIB/drop-test.kepub.epub"
 
 section "read"
+for _ in $(seq 1 20); do
+    [ "$(curl -s "$(api /kobo/v1/library/sync)" | jq 'length')" -eq 5 ] && break
+    sleep 1
+done
+
 check "read redirects to the shelf" "$(status "$BASE/read")" 303
 shelf=$(curl -s -b "$jar" "$BASE/")
 [[ $shelf == *'class="shelf-grid"'* ]] || fail "the shelf does not render"
@@ -413,6 +418,45 @@ check "icon maskable" "$(status "$BASE/icon-maskable-512.png")" 200
 check "offline page" "$(status "$BASE/offline")" 200
 curl -s -b "$jar" "$BASE/" | grep -q 'rel="manifest"' || fail "the shelf does not link the manifest"
 curl -s -b "$jar" "$BASE/" | grep -q 'apple-mobile-web-app-capable' || fail "the shelf carries no ios standalone meta"
+
+section "merge"
+shelf=$(curl -s -b "$jar" "$BASE/")
+second=$(grep -o 'href="/read/[0-9a-f-]\{36\}"' <<< "$shelf" | sed 's#href="/read/##; s#"##' | sed -n 2p)
+[ -n "$second" ] || fail "the shelf shows fewer than two books"
+
+sleep 1
+status -X PUT -b "$jar" -H 'content-type: application/json' \
+    -d '{"percent":40,"chapter":"a","chapter_percent":10,"page":0,"status":"Reading"}' \
+    "$BASE/read/$second/progress" > /dev/null
+
+shelf=$(curl -s -b "$jar" "$BASE/")
+first=$(grep -o 'href="/read/[0-9a-f-]\{36\}"' <<< "$shelf" | sed 's#href="/read/##; s#"##' | sed -n 1p)
+[ "$first" = "$second" ] || fail "a book with fresh progress is not on top"
+
+status -X PUT -H 'content-type: application/json' \
+    -d '{"ReadingStates":[{"CurrentBookmark":{"ProgressPercent":15,"ContentSourceProgressPercent":5,"Location":{"Source":"a","Type":"KoboSpan","Value":""}},"StatusInfo":{"Status":"Reading"}}]}' \
+    "$(api "/kobo/v1/library/$second/state")" > /dev/null
+json "a later but shorter position loses" "$(cat "$LIB/.kobink-progress/$second.json")" '.percent == 40' true
+
+status -X PUT -H 'content-type: application/json' \
+    -d '{"ReadingStates":[{"CurrentBookmark":{"ProgressPercent":55,"ContentSourceProgressPercent":5,"Location":{"Source":"a","Type":"KoboSpan","Value":""}},"StatusInfo":{"Status":"Reading"}}]}' \
+    "$(api "/kobo/v1/library/$second/state")" > /dev/null
+json "a further position wins" "$(cat "$LIB/.kobink-progress/$second.json")" '.percent == 55' true
+
+status -X PUT -H 'content-type: application/json' \
+    -d '{"ReadingStates":[{"CurrentBookmark":{"ProgressPercent":0,"ContentSourceProgressPercent":0,"Location":{"Source":"a","Type":"KoboSpan","Value":""}},"StatusInfo":{"Status":"ReadyToRead"}}]}' \
+    "$(api "/kobo/v1/library/$second/state")" > /dev/null
+json "unread resets the position" "$(cat "$LIB/.kobink-progress/$second.json")" '.percent == 0' true
+json "unread resets the status" "$(cat "$LIB/.kobink-progress/$second.json")" '.status == "ReadyToRead"' true
+
+shelf=$(curl -s -b "$jar" "$BASE/")
+first=$(grep -o 'href="/read/[0-9a-f-]\{36\}"' <<< "$shelf" | sed 's#href="/read/##; s#"##' | sed -n 1p)
+[ "$first" != "$second" ] || fail "an unread book still sorts as recently read"
+
+status -X PUT -H 'content-type: application/json' \
+    -d '{"ReadingStates":[{"CurrentBookmark":{"ProgressPercent":12,"ContentSourceProgressPercent":5,"Location":{"Source":"a","Type":"KoboSpan","Value":""}},"StatusInfo":{"Status":"Finished"}}]}' \
+    "$(api "/kobo/v1/library/$second/state")" > /dev/null
+json "finished is 100%" "$(cat "$LIB/.kobink-progress/$second.json")" '.percent == 100' true
 
 section "batch"
 cp "$LIB/R.F. Kuang/Babel - Rebecca F. Kuang (2022).epub" "$WORK/one.epub"

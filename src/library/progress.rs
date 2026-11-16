@@ -84,6 +84,51 @@ pub fn save(library_path: &str, id: &str, progress: &mut Progress) -> std::io::R
     Ok(())
 }
 
+pub fn merge(stored: Option<Progress>, mut incoming: Progress) -> Progress {
+    let Some(mut stored) = stored else {
+        return settle(incoming);
+    };
+
+    incoming.started = stored.started.max(incoming.started);
+
+    match incoming.status.as_str() {
+        "ReadyToRead" => {
+            stored.percent = 0.0;
+            stored.chapter.clear();
+            stored.chapter_percent = 0.0;
+            stored.page = 0;
+            stored.span.clear();
+            stored.status = "ReadyToRead".to_string();
+
+            stored
+        }
+        "Finished" => {
+            incoming.percent = 100.0;
+            incoming.chapter_percent = 100.0;
+
+            if incoming.chapter.is_empty() {
+                incoming.chapter = stored.chapter.clone();
+            }
+
+            settle(incoming)
+        }
+        _ if incoming.percent >= stored.percent => settle(incoming),
+        _ => settle(stored),
+    }
+}
+
+fn settle(mut progress: Progress) -> Progress {
+    if progress.status != "ReadyToRead" {
+        if progress.percent >= 99.5 {
+            progress.status = "Finished".to_string();
+        } else if progress.status == "Finished" {
+            progress.status = "Reading".to_string();
+        }
+    }
+
+    progress
+}
+
 pub fn remove(library_path: &str, id: &str) {
     let _ = fs::remove_file(dir(library_path).join(format!("{id}.json")));
 }

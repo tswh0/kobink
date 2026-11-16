@@ -117,23 +117,28 @@ async fn handle_book_state(
     let span = text("/CurrentBookmark/Location/Value").to_string();
     let status = text("/StatusInfo/Status");
 
-    let mut progress = progress::load(&library_path, &book_id).unwrap_or_default();
+    let stored = progress::load(&library_path, &book_id);
+    let fallback = stored.clone().unwrap_or_default();
 
-    progress.percent = percent;
-    progress.chapter_percent = number("/CurrentBookmark/ContentSourceProgressPercent")
-        .unwrap_or(progress.chapter_percent);
+    let incoming = progress::Progress {
+        percent,
+        chapter: if chapter.is_empty() {
+            fallback.chapter.clone()
+        } else {
+            chapter.clone()
+        },
+        chapter_percent: number("/CurrentBookmark/ContentSourceProgressPercent")
+            .unwrap_or(fallback.chapter_percent),
+        status: status.to_string(),
+        span: if span.is_empty() {
+            fallback.span.clone()
+        } else {
+            span.clone()
+        },
+        ..Default::default()
+    };
 
-    if !chapter.is_empty() {
-        progress.chapter = chapter.clone();
-    }
-
-    if !span.is_empty() {
-        progress.span = span.clone();
-    }
-
-    if !status.is_empty() {
-        progress.status = status.to_string();
-    }
+    let mut progress = progress::merge(stored, incoming);
 
     if let Err(error) = progress::save(&library_path, &book_id, &mut progress) {
         warn!("cannot store the reading state of {book_id}: {error}");
