@@ -75,16 +75,10 @@ reader, just somewhere to read while the device is on the shelf.
 Installable to a phone home screen, with an offline page when the server is down. Progress is one
 JSON per book in `.kobink-progress/`, and goes with the book.
 
-## Compared to upstream
-
-Forked from [potatoeggy/kobink](https://github.com/potatoeggy/kobink), which does the protocol and
-stops there: anyone who can reach the port can download the library, and the tree does not build.
-
-This fork puts the key in the path, builds in Docker, renders covers, marks KCC books as fixed
-layout, and tests the real binary on every push.
-
 ## Notes
 
+- Forked from [potatoeggy/kobink](https://github.com/potatoeggy/kobink), which is the basic sync.
+  Everything else here is mine.
 - HTTP on your LAN is fine. Behind a reverse proxy use HTTPS and keep the link to yourself.
 - `.epub` for books, `.kepub.epub` (KCC) for manga; a CBZ is counted in the scan but never synced.
 - `COVER_CACHE_DAYS` and `TRASH_DAYS` (default 30, `0` keeps forever) prune the cover cache and
