@@ -384,7 +384,7 @@ check "progress without a cookie" "$(status -X PUT -H 'content-type: application
 check "progress write" "$(status -X PUT -b "$jar" -H 'content-type: application/json' \
     -d "{\"percent\":33.3,\"chapter\":\"$href\",\"chapter_percent\":10,\"page\":0,\"status\":\"Reading\"}" \
     "$BASE/read/$book/progress")" 204
-json "progress read" "$(curl -s -b "$jar" "$BASE/read/$book/progress")" '.percent' 33.3
+json "progress stored" "$(cat "$LIB/.kobink-progress/$book.json")" '.percent == 33.3' true
 [ -f "$LIB/.kobink-progress/$book.json" ] || fail "progress is not kept in .kobink-progress"
 json "state to the device" "$(curl -s "$(api "/kobo/v1/library/$book/state")")" \
     '.ReadingStates[0].CurrentBookmark.ProgressPercent' 33.3
@@ -566,7 +566,7 @@ check "page image type" "$(header content-type "$BASE/read/$fixed/res/$page" -b 
 check "page position" "$(status -X PUT -b "$jar" -H 'content-type: application/json' \
     -d '{"percent":66.6,"chapter":"","chapter_percent":0,"page":2,"status":"Reading"}' \
     "$BASE/read/$fixed/progress")" 204
-json "page position read" "$(curl -s -b "$jar" "$BASE/read/$fixed/progress")" '.page' 2
+json "page position stored" "$(cat "$LIB/.kobink-progress/$fixed.json")" '.page == 2' true
 
 section "background"
 for _ in $(seq 1 20); do

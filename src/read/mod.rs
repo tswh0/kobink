@@ -11,7 +11,7 @@ use axum::{
     extract::{Path as Route, Query, State},
     http::{header, HeaderMap, HeaderValue, StatusCode},
     response::{Html, IntoResponse, Redirect, Response},
-    routing::get,
+    routing::{get, put},
     Json, Router,
 };
 use epub::doc::{EpubDoc, NavPoint};
@@ -45,7 +45,13 @@ const COVER: (u32, u32) = (149, 223);
 const MAX_CACHED_BOOKS: usize = 3;
 const MAX_CACHED_BYTES: u64 = 96 * 1024 * 1024;
 
-static BOOKS: Mutex<Vec<(PathBuf, u64, Arc<Vec<u8>>)>> = Mutex::new(Vec::new());
+struct CachedBook {
+    path: PathBuf,
+    size: u64,
+    bytes: Arc<Vec<u8>>,
+}
+
+static BOOKS: Mutex<Vec<CachedBook>> = Mutex::new(Vec::new());
 
 pub fn create_read_router() -> Router<Arc<Mutex<LibraryState>>> {
     Router::new()
@@ -63,7 +69,7 @@ pub fn create_read_router() -> Router<Arc<Mutex<LibraryState>>> {
         .route("/reader.js", get(script))
         .route("/read/{book_id}", get(reader))
         .route("/read/{book_id}/manifest", get(manifest))
-        .route("/read/{book_id}/progress", get(read_progress).put(write_progress))
+        .route("/read/{book_id}/progress", put(write_progress))
         .route("/read/{book_id}/res/{*path}", get(resource))
 }
 
@@ -176,7 +182,7 @@ async fn shelf(
             COVER.1
         );
 
-        let mut probe = String::new();
+        let mut meter = String::new();
 
         if percent > 0.0 {
             let label = if percent >= 99.5 {
@@ -185,19 +191,19 @@ async fn shelf(
                 format!("{:.0}%", percent)
             };
 
-            probe = format!(
+            meter = format!(
                 r#"<span class="read-line"><progress max="100" value="{percent:.1}"></progress><span>{label}</span></span>"#
             );
         }
 
         markup.push_str(&format!(
-            r#"<li><a class="book" href="/read/{id}"><span class="cover" data-initials="{initials}"><img src="{cover}" alt="" loading="lazy"></span><span class="name">{title}</span><span class="by">{author}</span>{probe}</a></li>"#,
+            r#"<li><a class="book" href="/read/{id}"><span class="cover" data-initials="{initials}"><img src="{cover}" alt="" loading="lazy"></span><span class="name">{title}</span><span class="by">{author}</span>{meter}</a></li>"#,
             id = book.id,
-            initials = initials(&book.title),
+            initials = escape(&initials(&book.title)),
             cover = cover,
             title = escape(&book.title),
             author = escape(&book.author),
-            probe = probe,
+            meter = meter,
         ));
         markup.push('\n');
     }
@@ -287,30 +293,6 @@ async fn manifest(
         progress: view,
     })
     .into_response()
-}
-
-async fn read_progress(
-    State(library): State<Arc<Mutex<LibraryState>>>,
-    headers: HeaderMap,
-    Route(book_id): Route<String>,
-) -> Response {
-    if !authorised(&headers) {
-        return StatusCode::NOT_FOUND.into_response();
-    }
-
-    let library_path = {
-        let state = library
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-
-        state.path.clone()
-    };
-
-    let view = tokio::task::spawn_blocking(move || View::from(progress::load(&library_path, &book_id)))
-        .await
-        .unwrap_or_default();
-
-    Json(view).into_response()
 }
 
 async fn write_progress(
@@ -658,10 +640,10 @@ fn book_bytes(path: &Path) -> Option<Arc<Vec<u8>>> {
 
     if let Some(at) = cache
         .iter()
-        .position(|(cached, size, _)| cached == path && *size == meta.len())
+        .position(|cached| cached.path == path && cached.size == meta.len())
     {
         let entry = cache.remove(at);
-        let bytes = entry.2.clone();
+        let bytes = entry.bytes.clone();
         drop(cache);
 
         return Some(bytes);
@@ -682,7 +664,11 @@ fn book_bytes(path: &Path) -> Option<Arc<Vec<u8>>> {
         cache.remove(0);
     }
 
-    cache.push((path.to_path_buf(), meta.len(), bytes.clone()));
+    cache.push(CachedBook {
+        path: path.to_path_buf(),
+        size: meta.len(),
+        bytes: bytes.clone(),
+    });
 
     Some(bytes)
 }

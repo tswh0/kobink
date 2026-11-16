@@ -15,7 +15,7 @@ let manifest = null;
 let index = 0;
 let page = 0;
 let pages = 1;
-let measured = { width: 0, height: 0, pitch: 0 };
+let pitch = 0;
 let timer = null;
 let resizing = null;
 let current = { percent: 0, chapter: '', chapter_percent: 0, page: 0, status: 'Reading' };
@@ -33,10 +33,6 @@ async function start() {
   } else {
     restore();
   }
-}
-
-function margins() {
-  return (frame.clientWidth || stage.clientWidth) < 480 ? 16 : PAD;
 }
 
 function restore() {
@@ -67,13 +63,13 @@ function readFrame(fraction) {
 }
 
 function typeset(doc) {
-  const pad = margins();
   const width = Math.max(200, frame.clientWidth || stage.clientWidth);
   const height = Math.max(240, frame.clientHeight || stage.clientHeight);
+  const pad = width < 480 ? 16 : PAD;
   const column = Math.max(160, width - pad * 2);
   const style = doc.getElementById('kobink-typeset') || doc.createElement('style');
 
-  measured = { width, height, pitch: column + GAP };
+  pitch = column + GAP;
 
   style.id = 'kobink-typeset';
   style.textContent = `
@@ -94,14 +90,14 @@ function typeset(doc) {
     ::selection { background: rgb(231 183 92 / 0.4); }
   `;
   doc.head.append(style);
-  pages = Math.max(1, Math.round((doc.body.scrollWidth + GAP) / measured.pitch));
+  pages = Math.max(1, Math.round((doc.body.scrollWidth + GAP) / pitch));
 }
 
 function go(target) {
   page = clamp(target, 0, pages - 1);
   const doc = frame.contentDocument;
 
-  if (doc) doc.body.style.transform = `translateX(${-page * measured.pitch}px)`;
+  if (doc) doc.body.style.transform = `translateX(${-page * pitch}px)`;
 
   report();
 }
@@ -144,9 +140,7 @@ function showPlate() {
   frame.hidden = true;
   plate.hidden = false;
   pages = Math.max(1, manifest.pages.length);
-  const saved = current.page || 0;
-  const fromPercent = Math.round((current.percent / 100) * (pages - 1));
-  page = clamp(saved || fromPercent, 0, pages - 1);
+  page = clamp(current.page || Math.round((current.percent / 100) * (pages - 1)), 0, pages - 1);
   paint();
 }
 
@@ -201,7 +195,7 @@ function save() {
     status: current.status || 'Reading',
   };
 
-  return fetch(`/read/${book}/progress`, {
+  fetch(`/read/${book}/progress`, {
     method: 'PUT',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
