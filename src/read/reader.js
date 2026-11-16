@@ -36,7 +36,7 @@ async function start() {
 }
 
 function margins() {
-  return stage.clientWidth < 480 ? 16 : PAD;
+  return (frame.clientWidth || stage.clientWidth) < 480 ? 16 : PAD;
 }
 
 function restore() {
@@ -68,8 +68,8 @@ function readFrame(fraction) {
 
 function typeset(doc) {
   const pad = margins();
-  const width = Math.max(200, stage.clientWidth);
-  const height = Math.max(240, stage.clientHeight);
+  const width = Math.max(200, frame.clientWidth || stage.clientWidth);
+  const height = Math.max(240, frame.clientHeight || stage.clientHeight);
   const column = Math.max(160, width - pad * 2);
   const style = doc.getElementById('kobink-typeset') || doc.createElement('style');
 
@@ -358,6 +358,10 @@ function reflow() {
 
 addEventListener('resize', reflow);
 addEventListener('orientationchange', reflow);
+
+if (window.ResizeObserver) {
+  new ResizeObserver(() => reflow()).observe(stage);
+}
 
 if (window.visualViewport) {
   window.visualViewport.addEventListener('resize', reflow);
