@@ -123,13 +123,17 @@ fn prune_trash(dir: &Path, days: u64) -> usize {
             modified_before(&entry, cutoff)
         };
 
+        if !expired {
+            continue;
+        }
+
         let gone = if kind.is_dir() {
             fs::remove_dir_all(entry.path())
         } else {
             fs::remove_file(entry.path())
         };
 
-        if expired && gone.is_ok() {
+        if gone.is_ok() {
             removed += 1;
         }
     }
