@@ -330,6 +330,11 @@ check "favicon type" "$(header content-type "$BASE/favicon.ico")" image/x-icon
 check "reader style" "$(status "$BASE/reader.css")" 200
 check "reader script" "$(status "$BASE/reader.js")" 200
 
+if command -v node >/dev/null; then
+    node --check "$DIR/../src/read/reader.js" || fail "the reader script does not parse"
+    say "reader script parses" yes
+fi
+
 jar=$WORK/jar.txt
 check "wrong key" "$(curl -s -o /dev/null -w '%{http_code}' -c "$jar" -d "key=wrong" "$BASE/")" 303
 [[ $(curl -s -b "$jar" "$BASE/") == *'name="file"'* ]] && fail "a wrong key unlocked the page"

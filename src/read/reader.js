@@ -24,6 +24,7 @@ const clamp = (value, low, high) => Math.min(high, Math.max(low, value));
 async function start() {
   manifest = await fetch(`/read/${book}/manifest`).then((response) => response.json());
   current = { ...current, ...manifest.progress };
+  document.body.classList.toggle('fixed', manifest.layout === 'fixed');
   buildToc();
 
   if (manifest.layout === 'fixed') {
@@ -98,6 +99,15 @@ function go(target) {
 }
 
 function next() {
+  if (manifest.layout === 'fixed') {
+    if (page < pages - 1) {
+      page += 1;
+      paint();
+    }
+
+    return;
+  }
+
   if (page < pages - 1) return go(page + 1);
   if (index < manifest.chapters.length - 1) {
     index += 1;
@@ -106,6 +116,15 @@ function next() {
 }
 
 function prev() {
+  if (manifest.layout === 'fixed') {
+    if (page > 0) {
+      page -= 1;
+      paint();
+    }
+
+    return;
+  }
+
   if (page > 0) return go(page - 1);
   if (index > 0) {
     index -= 1;
@@ -146,7 +165,9 @@ function report() {
     : ((index + (pages > 1 ? page / pages : 0)) / count) * 100;
 
   current.percent = Math.round(clamp(progress, 0, 100) * 10) / 10;
-  current.chapter = fixed ? current.chapter : manifest.chapters[index].href;
+  current.chapter = fixed
+    ? (manifest.pages[page] || {}).href || current.chapter
+    : manifest.chapters[index].href;
   current.chapter_percent = fixed ? 0 : pages > 1 ? (page / pages) * 100 : 0;
   current.page = fixed ? page : 0;
 

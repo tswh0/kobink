@@ -378,6 +378,20 @@
   }
 }
 
+.fixed .reader-zone {
+  width: 50%;
+}
+
+.fixed .reader-zone:hover {
+  background: transparent;
+}
+
+.fixed #plate {
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
 @media (max-width: 640px) {
   .shelf-grid {
     grid-template-columns: repeat(auto-fill, minmax(7.4rem, 1fr));
