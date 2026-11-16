@@ -184,8 +184,7 @@
     max(var(--page-pad), env(safe-area-inset-right)) 0.55rem
     max(var(--page-pad), env(safe-area-inset-left));
   border-block-end: 1px solid var(--border);
-  backdrop-filter: blur(12px);
-  background: color-mix(in srgb, var(--background) 82%, transparent);
+  background: var(--background);
   z-index: 3;
 }
 
