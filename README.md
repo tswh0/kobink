@@ -6,25 +6,17 @@ Nothing gets uploaded.
 
 ## Screenshots
 
-| The library is the root | A book, read in the browser |
+| The library is the root | A book in the browser |
 | --- | --- |
 | ![The library](docs/shelf.png) | ![The reader](docs/reader.png) |
 | ![The drop page](docs/drop.png) | ![A fixed-layout page](docs/manga.png) |
 
-Installed to a phone's home screen, it opens full screen:
-
-![The reader on a phone](docs/reader-phone.png)
-
 ## How it works
 
-The reader asks its store what it owns. Kobink replies with the files from your folder, and for
-the Kobo it looks like a normal sync.
-
-The address you type into the device contains a secret code. Without it, nothing is found. That
-is the whole access control, so you can forward a public URL to it as long as the link stays with
-you.
-
-The code is printed when the container starts.
+The reader asks its store what it owns. Kobink replies with your folder, so for the Kobo it looks
+like a normal sync. The address you type into the device carries a secret code, and without it
+nothing is found. That is the whole access control, so forward a public URL only if the
+link stays with you. The code is printed at startup:
 
 ```bash
 docker compose logs kobink | grep -A2 "api key"
@@ -45,65 +37,59 @@ services:
       - ./data:/app/data
 ```
 
-`PUBLIC_URL` has to be the address the reader can reach, because it ends up inside every download
-link. If the device can open it in a browser, it is right.
+`PUBLIC_URL` must be an address the reader can reach. The bundled `docker-compose.yml` runs
+unprivileged with a read-only root; `chown -R 1000:1000 ./data` once.
 
-The bundled `docker-compose.yml` runs it unprivileged with a read-only root; if you use it,
-`chown -R 1000:1000 ./data` once.
-
-Then edit `.kobo/Kobo/Kobo eReader.conf` on the Kobo:
+On the Kobo, in `.kobo/Kobo/Kobo eReader.conf`:
 
 ```ini
 [OneStoreServices]
 api_endpoint=http://192.168.1.10:3000/PASTE-YOUR-KEY-HERE/kobo
 ```
 
-Replace `PASTE-YOUR-KEY-HERE` with the code from the log. The path ends at `/kobo`; the device
-appends `/v1` itself. Press Sync afterwards.
+Replace the placeholder with the code from the log; the path ends at `/kobo`, the device appends
+`/v1`. Press Sync afterwards.
 
 ## What it does
 
-- Covers are cut out of each book by the server, in the sizes the device asks for.
-- Volumes arrive as a series with the right numbering. The name comes from the book's metadata,
-  or from the title if the book has none (`Fire Punch v03`).
+- Covers are cut from each book by the server, in the sizes the device asks for.
+- Volumes arrive as a series with the right numbering, from metadata or the title.
 - A sync with nothing new costs a few kilobytes.
-- A book-drop page at `/drop` takes EPUB, CBZ and PDF from the browser, several at once. CBZ and PDF are
-  converted with [KCC](https://github.com/ciromattia/kcc) for your e-reader, which needs `LIBRARY_WRITE=:rw` and `ghcr.io/tswh0/kobink:conversion`
-  (~400 MB) or a local `KOBINK_TARGET=conversion` build; plain `latest` takes EPUB only.
-- The library is the domain root, behind the same key: a shelf of covers, a paginated reader for EPUBs
-  and a page-flip viewer for fixed-layout kepubs. Progress goes both ways — a page turned in the
-  browser reaches the reader at its next sync, and where you stop on the reader is where the browser
-  opens.
-- Add it to your phone's home screen and it opens full screen: manifest, icons and a service worker
-  that keeps the shell and shows an offline page when the server is away.
-- Deleting a book on the reader moves its file into `.kobink-trash/` at the top of the library.
-  `LIBRARY_TRASH=off` deletes it outright instead.
-- Downloads stream and answer `Range`, so an interrupted transfer resumes instead of starting over.
-- The folder is read again every ten minutes. Drop a file in, wait, sync.
+- `/drop` takes EPUB, CBZ and PDF, several at once. CBZ and PDF go through
+  [KCC](https://github.com/ciromattia/kcc), which needs `LIBRARY_WRITE=:rw` and the `:conversion`
+  image (~400 MB); plain `latest` takes EPUB only.
+- Deleting a book on the reader moves its file into `.kobink-trash/`, or removes it outright with
+  `LIBRARY_TRASH=off`.
+- Downloads stream and answer `Range`; an interrupted transfer resumes.
+- The folder is rescanned every ten minutes; drop a file in, wait, sync.
 - No database. One container, two folders.
+
+## Reading in the browser
+
+The library is the domain root, behind the same key: a shelf of covers, a paginated view for EPUBs
+and a page-flip view for fixed-layout kepubs. It complements the Kobo, it does not replace it. Where
+you stop on the device is where the browser opens, and a page turned in the browser reaches the
+device at its next sync. No highlights, notes, dictionary or library management: no full web
+reader, just somewhere to read while the device is on the shelf.
+
+Installable to a phone home screen, with an offline page when the server is down. Progress is one
+JSON per book in `.kobink-progress/`, and goes with the book.
 
 ## Compared to upstream
 
-Forked from [potatoeggy/kobink](https://github.com/potatoeggy/kobink). Upstream does the protocol
-and stops there. Anyone who can reach the port can download the library, the tree does not build
-(a source file is missing), and the download links point at the author's own domain.
+Forked from [potatoeggy/kobink](https://github.com/potatoeggy/kobink), which does the protocol and
+stops there: anyone who can reach the port can download the library, and the tree does not build.
 
 This fork puts the key in the path, builds in Docker, renders covers, marks KCC books as fixed
-layout, adds series and incremental sync and gzip, rescans the folder on a timer, and runs a test
-against the real binary on every push. The SQL dependencies and demo endpoints are gone.
+layout, and tests the real binary on every push.
 
 ## Notes
 
 - HTTP on your LAN is fine. Behind a reverse proxy use HTTPS and keep the link to yourself.
 - `.epub` for books, `.kepub.epub` (KCC) for manga; a CBZ is counted in the scan but never synced.
 - `COVER_CACHE_DAYS` and `TRASH_DAYS` (default 30, `0` keeps forever) prune the cover cache and
-  `.kobink-trash`.
-- Reading progress is one JSON per book in `.kobink-progress/` inside the library; it goes with the
-  book when the book is deleted.
-- Set `API_KEY` if you want to pick the code yourself instead of using the generated one.
-- A book that refuses to update: delete it on the device and sync again.
-- The image is distroless, so there is no shell inside it. `docker exec -it kobink sh` won't
-  work; use `docker logs kobink`. `docker exec kobink /usr/local/bin/kobink --version` and
-  `--health` answer without a shell.
+  `.kobink-trash`; `API_KEY` picks the code instead of the generated one.
+- Distroless, so no shell: `docker logs kobink`; `--version` and `--health` still answer via
+  `docker exec`.
 
 License: AGPL-3.0, like the original.
