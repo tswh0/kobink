@@ -208,8 +208,13 @@ async fn reader(
 
 async fn manifest(
     State(library): State<Arc<Mutex<LibraryState>>>,
+    headers: HeaderMap,
     Route(book_id): Route<String>,
 ) -> Response {
+    if !authorised(&headers) {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+
     let (book, library_path) = {
         let state = library
             .lock()
@@ -255,8 +260,13 @@ async fn manifest(
 
 async fn read_progress(
     State(library): State<Arc<Mutex<LibraryState>>>,
+    headers: HeaderMap,
     Route(book_id): Route<String>,
 ) -> Response {
+    if !authorised(&headers) {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+
     let library_path = {
         let state = library
             .lock()
@@ -274,9 +284,14 @@ async fn read_progress(
 
 async fn write_progress(
     State(library): State<Arc<Mutex<LibraryState>>>,
+    headers: HeaderMap,
     Route(book_id): Route<String>,
     Json(view): Json<View>,
 ) -> Response {
+    if !authorised(&headers) {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+
     let (found, library_path) = {
         let state = library
             .lock()

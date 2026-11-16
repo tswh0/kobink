@@ -349,6 +349,7 @@ check "shelf without a cookie" "$(status "$BASE/read")" 303
 shelf=$(curl -s -b "$jar" "$BASE/read")
 [[ $shelf == *'class="shelf-grid"'* ]] || fail "the shelf does not render"
 [[ $shelf == *'/reader.css'* ]] || fail "the shelf does not ask for the reader stylesheet"
+curl -s "$BASE/reader.css" | grep -q '#page\[hidden\]' || fail "the reader css leaves the empty frame on top of the page plate"
 book=$(sed -n 's#.*href="/read/\([0-9a-f-]\{36\}\)".*#\1#p' <<< "$shelf" | head -1)
 [ -n "$book" ] || fail "the shelf shows no book"
 
@@ -362,6 +363,10 @@ chapter=$(curl -s -D "$HDRS" -b "$jar" "$BASE/read/$book/res/$href")
 grep -qi 'x-frame-options: SAMEORIGIN' "$HDRS" || fail "a chapter is not frameable from the reader"
 grep -qi "content-security-policy:.*sandbox" "$HDRS" || fail "a chapter is not sandboxed"
 check "chapter traversal" "$(status --path-as-is -b "$jar" "$BASE/read/$book/res/../META-INF/container.xml")" 404
+check "manifest without a cookie" "$(status "$BASE/read/$book/manifest")" 404
+check "progress without a cookie" "$(status -X PUT -H 'content-type: application/json' \
+    -d '{"percent":1,"chapter":"x","chapter_percent":0,"page":0,"status":"Reading"}' \
+    "$BASE/read/$book/progress")" 404
 
 check "progress write" "$(status -X PUT -b "$jar" -H 'content-type: application/json' \
     -d "{\"percent\":33.3,\"chapter\":\"$href\",\"chapter_percent\":10,\"page\":0,\"status\":\"Reading\"}" \

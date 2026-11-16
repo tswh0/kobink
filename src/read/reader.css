@@ -246,6 +246,7 @@
   background: var(--muted);
 }
 
+#page[hidden],
 #plate[hidden] {
   display: none;
 }
