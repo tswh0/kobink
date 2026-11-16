@@ -16,7 +16,7 @@
 <meta name="apple-mobile-web-app-title" content="kobink">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="stylesheet" href="/style.css?v=2">
-<link rel="stylesheet" href="/reader.css?v=7">
+<link rel="stylesheet" href="/reader.css?v=9">
 </head>
 <body class="shelf-page">
 
@@ -25,13 +25,14 @@
     <div>
       <p class="eyebrow">kobink</p>
       <h1>Library</h1>
-      <p class="lede">{{COUNT}} books. Where you stop here is where the reader picks up.</p>
+      <p class="lede">{{COUNT}}. Where you stop here is where the reader picks up.</p>
     </div>
     <a class="button" href="/drop">Drop a book</a>
   </header>
   <ul class="shelf-grid">{{BOOKS}}</ul>
 </main>
 
+<script src="/shelf.js?v=1" defer></script>
 <script src="/pwa.js?v=1" defer></script>
 
 </body>

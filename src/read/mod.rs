@@ -33,6 +33,7 @@ const OFFLINE: &str = include_str!("offline.html");
 const MANIFEST: &str = include_str!("manifest.webmanifest");
 const WORKER: &str = include_str!("sw.js");
 const PWA: &str = include_str!("pwa.js");
+const SHELF_JS: &str = include_str!("shelf.js");
 const ICON_192: &[u8] = include_bytes!("icon-192.png");
 const ICON_512: &[u8] = include_bytes!("icon-512.png");
 const ICON_MASKABLE: &[u8] = include_bytes!("icon-maskable-512.png");
@@ -54,6 +55,7 @@ pub fn create_read_router() -> Router<Arc<Mutex<LibraryState>>> {
         .route("/manifest.webmanifest", get(manifest_json))
         .route("/sw.js", get(worker))
         .route("/pwa.js", get(pwa))
+        .route("/shelf.js", get(shelf_script))
         .route("/icon-192.png", get(icon_192))
         .route("/icon-512.png", get(icon_512))
         .route("/icon-maskable-512.png", get(icon_maskable))
@@ -189,8 +191,9 @@ async fn shelf(
         }
 
         markup.push_str(&format!(
-            r#"<li><a class="book" href="/read/{id}"><span class="cover"><img src="{cover}" alt="" loading="lazy"></span><span class="name">{title}</span><span class="by">{author}</span>{probe}</a></li>"#,
+            r#"<li><a class="book" href="/read/{id}"><span class="cover" data-initials="{initials}"><img src="{cover}" alt="" loading="lazy"></span><span class="name">{title}</span><span class="by">{author}</span>{probe}</a></li>"#,
             id = book.id,
+            initials = initials(&book.title),
             cover = cover,
             title = escape(&book.title),
             author = escape(&book.author),
@@ -200,9 +203,9 @@ async fn shelf(
     }
 
     let lede = if reading > 0 {
-        format!("{}, {reading} in progress", books.len())
+        format!("{} books · {reading} in progress", books.len())
     } else {
-        books.len().to_string()
+        format!("{} books", books.len())
     };
 
     Html(SHELF.replace("{{COUNT}}", &lede).replace("{{BOOKS}}", &markup)).into_response()
@@ -437,6 +440,10 @@ async fn pwa() -> Response {
     asset(PWA.as_bytes(), "text/javascript; charset=utf-8")
 }
 
+async fn shelf_script() -> Response {
+    asset(SHELF_JS.as_bytes(), "text/javascript; charset=utf-8")
+}
+
 async fn icon_192() -> Response {
     icon(ICON_192)
 }
@@ -618,6 +625,16 @@ fn strip_tags(html: &str) -> String {
     }
 
     text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn initials(title: &str) -> String {
+    title
+        .split_whitespace()
+        .filter(|word| word.chars().any(char::is_alphanumeric))
+        .take(2)
+        .filter_map(|word| word.chars().next())
+        .flat_map(char::to_uppercase)
+        .collect()
 }
 
 fn escape(text: &str) -> String {

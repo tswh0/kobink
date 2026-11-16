@@ -90,6 +90,28 @@
   transition: transform 0.2s cubic-bezier(0.2, 0.7, 0.3, 1), box-shadow 0.2s;
 }
 
+.book .cover::before {
+  content: attr(data-initials);
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  letter-spacing: 0.14em;
+  color: var(--muted-foreground);
+  background-image: repeating-linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--foreground) 5%, transparent) 0 1px,
+    transparent 1px 0.7rem
+  );
+}
+
+.book .cover img {
+  position: relative;
+  z-index: 1;
+}
+
 .book .cover::after {
   content: "";
   position: absolute;
@@ -237,6 +259,7 @@
   position: relative;
   min-width: 0;
   min-height: 0;
+  padding: 0;
   overflow: hidden;
 }
 
