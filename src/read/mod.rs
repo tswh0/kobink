@@ -1,0 +1,676 @@
+use std::{
+    collections::HashMap,
+    io::Cursor,
+    path::{Path, PathBuf},
+    sync::{Arc, Mutex},
+};
+
+use axum::{
+    body::Body,
+    extract::{Path as Route, State},
+    http::{header, HeaderMap, HeaderValue, StatusCode},
+    response::{Html, IntoResponse, Redirect, Response},
+    routing::get,
+    Json, Router,
+};
+use epub::doc::{EpubDoc, NavPoint};
+use serde::{Deserialize, Serialize};
+use tracing::warn;
+
+use crate::{
+    auth::api_key,
+    drop::authorised,
+    library::{
+        models::{Book, LibraryState},
+        progress::{self, Progress},
+    },
+};
+
+const SHELF: &str = include_str!("shelf.html");
+const READER: &str = include_str!("reader.html");
+const STYLE: &str = include_str!("reader.css");
+const SCRIPT: &str = include_str!("reader.js");
+
+const COVER: (u32, u32) = (149, 223);
+const MAX_CACHED_BOOKS: usize = 3;
+const MAX_CACHED_BYTES: u64 = 96 * 1024 * 1024;
+
+static BOOKS: Mutex<Vec<(PathBuf, u64, Arc<Vec<u8>>)>> = Mutex::new(Vec::new());
+
+pub fn create_read_router() -> Router<Arc<Mutex<LibraryState>>> {
+    Router::new()
+        .route("/read", get(shelf))
+        .route("/read.css", get(style))
+        .route("/read.js", get(script))
+        .route("/read/{book_id}", get(reader))
+        .route("/read/{book_id}/manifest", get(manifest))
+        .route("/read/{book_id}/progress", get(read_progress).put(write_progress))
+        .route("/read/{book_id}/res/{*path}", get(resource))
+}
+
+#[derive(Debug, Serialize)]
+struct Manifest {
+    title: String,
+    author: String,
+    layout: &'static str,
+    chapters: Vec<Chapter>,
+    pages: Vec<Page>,
+    progress: View,
+}
+
+#[derive(Debug, Serialize, Clone)]
+struct Chapter {
+    href: String,
+    label: String,
+}
+
+#[derive(Debug, Serialize)]
+struct Page {
+    href: String,
+    src: String,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize, Clone)]
+struct View {
+    percent: f64,
+    chapter: String,
+    chapter_percent: f64,
+    page: u32,
+    status: String,
+}
+
+impl From<Option<Progress>> for View {
+    fn from(progress: Option<Progress>) -> Self {
+        progress
+            .map(|progress| Self {
+                percent: progress.percent,
+                chapter: progress.chapter,
+                chapter_percent: progress.chapter_percent,
+                page: progress.page,
+                status: progress.status,
+            })
+            .unwrap_or_default()
+    }
+}
+
+async fn shelf(
+    State(library): State<Arc<Mutex<LibraryState>>>,
+    headers: HeaderMap,
+) -> Response {
+    if !authorised(&headers) {
+        return Redirect::to("/").into_response();
+    }
+
+    let (library_path, books) = {
+        let state = library
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+        (state.path.clone(), state.books.clone())
+    };
+
+    let states = tokio::task::spawn_blocking(move || progress::all(&library_path))
+        .await
+        .unwrap_or_default();
+
+    let reading = states
+        .values()
+        .filter(|progress| progress.percent > 0.0 && progress.status != "Finished")
+        .count();
+
+    let mut order: Vec<&Book> = books.iter().collect();
+    order.sort_by(|left, right| {
+        let left_state = states.get(&left.id.to_string());
+        let right_state = states.get(&right.id.to_string());
+        let left_stamp = left_state.map(|state| state.updated).unwrap_or_default();
+        let right_stamp = right_state.map(|state| state.updated).unwrap_or_default();
+
+        right_stamp
+            .cmp(&left_stamp)
+            .then_with(|| left.title.cmp(&right.title))
+    });
+
+    let mut markup = String::new();
+
+    for book in order {
+        let state = states.get(&book.id.to_string());
+        let percent = state.map(|state| state.percent).unwrap_or_default();
+        let cover = format!(
+            "/{}/{}/{}/{}/false/image.jpg",
+            api_key(),
+            book.id,
+            COVER.0,
+            COVER.1
+        );
+
+        let mut probe = String::new();
+
+        if percent > 0.0 {
+            let label = if percent >= 99.5 {
+                "Finished".to_string()
+            } else {
+                format!("{:.0}%", percent)
+            };
+
+            probe = format!(
+                r#"<span class="read-line"><progress max="100" value="{percent:.1}"></progress><span>{label}</span></span>"#
+            );
+        }
+
+        markup.push_str(&format!(
+            r#"<li><a class="book" href="/read/{id}"><span class="cover"><img src="{cover}" alt="" loading="lazy"></span><span class="name">{title}</span><span class="by">{author}</span>{probe}</a></li>"#,
+            id = book.id,
+            cover = cover,
+            title = escape(&book.title),
+            author = escape(&book.author),
+            probe = probe,
+        ));
+    }
+
+    let lede = if reading > 0 {
+        format!("{}, {reading} in progress", books.len())
+    } else {
+        books.len().to_string()
+    };
+
+    Html(SHELF.replace("{{COUNT}}", &lede).replace("{{BOOKS}}", &markup)).into_response()
+}
+
+async fn reader(
+    State(library): State<Arc<Mutex<LibraryState>>>,
+    headers: HeaderMap,
+    Route(book_id): Route<String>,
+) -> Response {
+    if !authorised(&headers) {
+        return Redirect::to("/").into_response();
+    }
+
+    let book = {
+        let state = library
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+        state.find_book_by_id(&book_id).cloned()
+    };
+
+    let Some(book) = book else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+
+    Html(
+        READER
+            .replace("{{TITLE}}", &escape(&book.title))
+            .replace("{{ID}}", &book.id.to_string()),
+    )
+    .into_response()
+}
+
+async fn manifest(
+    State(library): State<Arc<Mutex<LibraryState>>>,
+    Route(book_id): Route<String>,
+) -> Response {
+    let (book, library_path) = {
+        let state = library
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+        (state.find_book_by_id(&book_id).cloned(), state.path.clone())
+    };
+
+    let Some(book) = book else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+
+    let path = book.path.clone();
+    let fixed = book.fixed_layout;
+    let structure = match tokio::task::spawn_blocking(move || structure_of(&path, fixed)).await {
+        Ok(Some(structure)) => structure,
+        Ok(None) => {
+            warn!("cannot read the structure of {}", book.path.display());
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+        Err(error) => {
+            warn!("cannot read {}: {error}", book.path.display());
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+
+    let store = library_path.clone();
+    let id = book_id.clone();
+    let view = tokio::task::spawn_blocking(move || View::from(progress::load(&store, &id)))
+        .await
+        .unwrap_or_default();
+
+    Json(Manifest {
+        title: book.title.clone(),
+        author: book.author.clone(),
+        layout: if fixed { "fixed" } else { "flow" },
+        chapters: structure.chapters,
+        pages: structure.pages,
+        progress: view,
+    })
+    .into_response()
+}
+
+async fn read_progress(
+    State(library): State<Arc<Mutex<LibraryState>>>,
+    Route(book_id): Route<String>,
+) -> Response {
+    let library_path = {
+        let state = library
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+        state.path.clone()
+    };
+
+    let view = tokio::task::spawn_blocking(move || View::from(progress::load(&library_path, &book_id)))
+        .await
+        .unwrap_or_default();
+
+    Json(view).into_response()
+}
+
+async fn write_progress(
+    State(library): State<Arc<Mutex<LibraryState>>>,
+    Route(book_id): Route<String>,
+    Json(view): Json<View>,
+) -> Response {
+    let (found, library_path) = {
+        let state = library
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+        (
+            state.find_book_by_id(&book_id).is_some(),
+            state.path.clone(),
+        )
+    };
+
+    if !found {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+
+    let wanted_id = book_id.clone();
+    let stored = tokio::task::spawn_blocking(move || {
+        let mut stored = Progress {
+            percent: view.percent.clamp(0.0, 100.0),
+            chapter: view.chapter,
+            chapter_percent: view.chapter_percent.clamp(0.0, 100.0),
+            page: view.page,
+            status: if view.status.is_empty() {
+                "Reading".to_string()
+            } else {
+                view.status
+            },
+            ..progress::load(&library_path, &wanted_id).unwrap_or_default()
+        };
+
+        stored.status = if stored.percent >= 99.5 {
+            "Finished".to_string()
+        } else if stored.status == "Finished" && stored.percent < 99.5 {
+            "Reading".to_string()
+        } else {
+            stored.status
+        };
+
+        progress::save(&library_path, &wanted_id, &mut stored)
+    })
+    .await;
+
+    match stored {
+        Ok(Ok(())) => StatusCode::NO_CONTENT.into_response(),
+        Ok(Err(error)) => {
+            warn!("cannot store the progress of {book_id}: {error}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+        Err(error) => {
+            warn!("cannot store the progress of {book_id}: {error}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+async fn resource(
+    State(library): State<Arc<Mutex<LibraryState>>>,
+    headers: HeaderMap,
+    Route((book_id, path)): Route<(String, String)>,
+) -> Response {
+    if !authorised(&headers) {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+
+    let book = {
+        let state = library
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+        state.find_book_by_id(&book_id).cloned()
+    };
+
+    let Some(book) = book else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+
+    let wanted = decode(path.trim_start_matches('/'));
+
+    if wanted.is_empty() || wanted.contains("..") || wanted.starts_with('/') {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+
+    let served = book.path.clone();
+    let opened = tokio::task::spawn_blocking(move || open_resource(&served, &wanted)).await;
+
+    match opened {
+        Ok(Some((bytes, mime))) => {
+            let mut response = Response::new(Body::from(bytes));
+            let mime = HeaderValue::try_from(mime).unwrap_or(HeaderValue::from_static(OCTET));
+            response.headers_mut().insert(header::CONTENT_TYPE, mime);
+            response.headers_mut().insert(
+                header::CACHE_CONTROL,
+                HeaderValue::from_static("private, max-age=600"),
+            );
+
+            response
+        }
+        Ok(None) => StatusCode::NOT_FOUND.into_response(),
+        Err(error) => {
+            warn!("cannot serve a file of {}: {error}", book.path.display());
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+const OCTET: &str = "application/octet-stream";
+
+async fn style() -> Response {
+    asset(STYLE.as_bytes(), "text/css; charset=utf-8")
+}
+
+async fn script() -> Response {
+    asset(SCRIPT.as_bytes(), "text/javascript; charset=utf-8")
+}
+
+fn asset(bytes: &'static [u8], mime: &'static str) -> Response {
+    let mut response = Response::new(Body::from(bytes));
+    response
+        .headers_mut()
+        .insert(header::CONTENT_TYPE, HeaderValue::from_static(mime));
+
+    response
+}
+
+struct Structure {
+    chapters: Vec<Chapter>,
+    pages: Vec<Page>,
+}
+
+fn structure_of(path: &Path, fixed: bool) -> Option<Structure> {
+    let mut doc = EpubDoc::new(path).ok()?;
+    let mut labels: HashMap<String, String> = HashMap::new();
+    index_toc(&doc.toc, &mut labels);
+
+    if labels.is_empty() {
+        if let Some((nav, html)) = nav_document(&mut doc) {
+            for (href, label) in nav_points(&html) {
+                labels.entry(resolve(&nav, &href)).or_insert(label);
+            }
+        }
+    }
+
+    let mut chapters = Vec::new();
+
+    for item in &doc.spine {
+        if !item.linear {
+            continue;
+        }
+
+        let Some(resource) = doc.resources.get(&item.idref) else {
+            continue;
+        };
+        let href = resource.path.to_string_lossy().replace('\\', "/");
+        let label = labels.get(&href).cloned().unwrap_or_default();
+
+        chapters.push(Chapter { href, label });
+    }
+
+    let mut pages = Vec::new();
+
+    if fixed {
+        for chapter in &chapters {
+            let Some(page) = doc.get_resource_str_by_path(&chapter.href) else {
+                continue;
+            };
+            let Some(src) = first_image(&page) else {
+                continue;
+            };
+
+            pages.push(Page {
+                href: chapter.href.clone(),
+                src: resolve(&chapter.href, &src),
+            });
+        }
+    }
+
+    Some(Structure { chapters, pages })
+}
+
+fn index_toc(points: &[NavPoint], labels: &mut HashMap<String, String>) {
+    for point in points {
+        let href = point.content.to_string_lossy().replace('\\', "/");
+        let href = decode(href.split('#').next().unwrap_or_default());
+        let label = point.label.trim();
+
+        if !label.is_empty() {
+            labels.entry(href).or_insert_with(|| label.to_string());
+        }
+
+        index_toc(&point.children, labels);
+    }
+}
+
+fn nav_document<R: std::io::Read + std::io::Seek>(doc: &mut EpubDoc<R>) -> Option<(String, String)> {
+    let path = doc
+        .resources
+        .values()
+        .find(|resource| {
+            resource
+                .properties
+                .as_deref()
+                .is_some_and(|properties| properties.split_whitespace().any(|token| token == "nav"))
+        })
+        .or_else(|| {
+            doc.resources.values().find(|resource| {
+                let name = resource.path.to_string_lossy();
+
+                name.ends_with("nav.xhtml") || name.ends_with("toc.xhtml")
+            })
+        })
+        .map(|resource| resource.path.to_string_lossy().replace('\\', "/"))?;
+
+    let html = doc.get_resource_str_by_path(&path)?;
+
+    Some((path, html))
+}
+
+fn nav_points(html: &str) -> Vec<(String, String)> {
+    let mut points = Vec::new();
+    let mut rest = html;
+
+    while let Some(at) = rest.find("<a ") {
+        rest = &rest[at..];
+
+        let Some(href_at) = rest.find("href=") else {
+            break;
+        };
+        let quote = rest[href_at + 5..].chars().next().unwrap_or('"');
+        let start = href_at + 6;
+
+        let (Some(end), Some(text_at)) = (rest[start..].find(quote), rest.find('>')) else {
+            break;
+        };
+
+        let href = decode(&rest[start..start + end]);
+        let Some(close) = rest[text_at..].find("</a>") else {
+            break;
+        };
+        let label = strip_tags(&rest[text_at + 1..text_at + close]);
+
+        if !href.is_empty() {
+            points.push((href, label));
+        }
+
+        rest = &rest[text_at + close + 4..];
+    }
+
+    points
+}
+
+fn strip_tags(html: &str) -> String {
+    let mut text = String::new();
+    let mut inside = false;
+
+    for character in html.chars() {
+        match character {
+            '<' => inside = true,
+            '>' => inside = false,
+            other if !inside => text.push(other),
+            _ => {}
+        }
+    }
+
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn first_image(html: &str) -> Option<String> {
+    let lower = html.to_ascii_lowercase();
+    let start = lower.find("<img")?;
+    let end = lower[start..]
+        .find('>')
+        .map(|offset| start + offset)
+        .unwrap_or(lower.len());
+    let tag = &lower[start..end];
+
+    for key in ["src=", "xlink:href="] {
+        for quote in ['"', '\''] {
+            let needle = format!("{key}{quote}");
+
+            if let Some(at) = tag.find(&needle) {
+                let from = start + at + needle.len();
+                let to = html[from..].find(quote)? + from;
+
+                return Some(html[from..to].to_string());
+            }
+        }
+    }
+
+    None
+}
+
+fn resolve(base: &str, href: &str) -> String {
+    let href = decode(href);
+
+    if href.starts_with('/') {
+        return href.trim_start_matches('/').to_string();
+    }
+
+    let mut parts: Vec<String> = base.split('/').map(str::to_string).collect();
+    parts.pop();
+
+    for segment in href.split('/') {
+        match segment {
+            "" | "." => {}
+            ".." => {
+                parts.pop();
+            }
+            other => parts.push(decode(other)),
+        }
+    }
+
+    parts.join("/")
+}
+
+fn decode(value: &str) -> String {
+    let bytes = value.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+
+    while index < bytes.len() {
+        if bytes[index] == b'%' && index + 2 < bytes.len() {
+            if let Ok(byte) = u8::from_str_radix(&value[index + 1..index + 3], 16) {
+                out.push(byte);
+                index += 3;
+                continue;
+            }
+        }
+
+        out.push(bytes[index]);
+        index += 1;
+    }
+
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+fn escape(text: &str) -> String {
+    text.chars()
+        .map(|character| match character {
+            '&' => "&amp;".to_string(),
+            '<' => "&lt;".to_string(),
+            '>' => "&gt;".to_string(),
+            '"' => "&quot;".to_string(),
+            '\'' => "&#39;".to_string(),
+            other => other.to_string(),
+        })
+        .collect()
+}
+
+fn book_bytes(path: &Path) -> Option<Arc<Vec<u8>>> {
+    let meta = std::fs::metadata(path).ok()?;
+    let mut cache = BOOKS
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+    if let Some(at) = cache
+        .iter()
+        .position(|(cached, size, _)| cached == path && *size == meta.len())
+    {
+        let entry = cache.remove(at);
+        let bytes = entry.2.clone();
+        drop(cache);
+
+        return Some(bytes);
+    }
+
+    drop(cache);
+
+    if meta.len() > MAX_CACHED_BYTES {
+        return std::fs::read(path).ok().map(Arc::new);
+    }
+
+    let bytes = Arc::new(std::fs::read(path).ok()?);
+    let mut cache = BOOKS
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+    while cache.len() >= MAX_CACHED_BOOKS {
+        cache.remove(0);
+    }
+
+    cache.push((path.to_path_buf(), meta.len(), bytes.clone()));
+
+    Some(bytes)
+}
+
+fn open_resource(path: &Path, wanted: &str) -> Option<(Vec<u8>, String)> {
+    let bytes = book_bytes(path)?;
+    let mut doc = EpubDoc::from_reader(Cursor::new(&bytes[..])).ok()?;
+
+    let resource = doc
+        .resources
+        .values()
+        .find(|resource| resource.path.to_string_lossy().replace('\\', "/") == wanted)?;
+    let mime = resource.mime.clone();
+    let content = doc.get_resource_by_path(wanted)?;
+
+    Some((content, mime))
+}

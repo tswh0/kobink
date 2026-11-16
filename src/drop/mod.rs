@@ -325,7 +325,7 @@ fn jobs() -> &'static Semaphore {
     })
 }
 
-fn authorised(headers: &HeaderMap) -> bool {
+pub(crate) fn authorised(headers: &HeaderMap) -> bool {
     headers
         .get_all(header::COOKIE)
         .iter()

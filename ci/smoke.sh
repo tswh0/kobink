@@ -342,6 +342,47 @@ body=$(curl -s -L -b "$jar" -F "file=@$WORK/drop-test.kepub.epub" "$BASE/upload"
 json "books after root upload" "$(curl -s "$(api /kobo/v1/library/sync)")" 'length' 6
 rm -f "$LIB/drop-test.kepub.epub"
 
+section "read"
+check "shelf without a cookie" "$(status "$BASE/read")" 303
+shelf=$(curl -s -b "$jar" "$BASE/read")
+[[ $shelf == *'class="shelf-grid"'* ]] || fail "the shelf does not render"
+book=$(sed -n 's#.*href="/read/\([0-9a-f-]\{36\}\)".*#\1#p' <<< "$shelf" | head -1)
+[ -n "$book" ] || fail "the shelf shows no book"
+
+manifest=$(curl -s -b "$jar" "$BASE/read/$book/manifest")
+json "manifest title" "$manifest" '.title | length > 0' true
+json "manifest chapters" "$manifest" '.chapters | length > 0' true
+href=$(printf '%s' "$manifest" | jq -r '.chapters[0].href')
+
+chapter=$(curl -s -D "$HDRS" -b "$jar" "$BASE/read/$book/res/$href")
+[[ $chapter == *"<html"* ]] || fail "a chapter did not come back as html"
+grep -qi 'x-frame-options: SAMEORIGIN' "$HDRS" || fail "a chapter is not frameable from the reader"
+grep -qi "content-security-policy:.*sandbox" "$HDRS" || fail "a chapter is not sandboxed"
+check "chapter traversal" "$(status --path-as-is -b "$jar" "$BASE/read/$book/res/../META-INF/container.xml")" 404
+
+check "progress write" "$(status -X PUT -b "$jar" -H 'content-type: application/json' \
+    -d "{\"percent\":33.3,\"chapter\":\"$href\",\"chapter_percent\":10,\"page\":0,\"status\":\"Reading\"}" \
+    "$BASE/read/$book/progress")" 204
+json "progress read" "$(curl -s -b "$jar" "$BASE/read/$book/progress")" '.percent' 33.3
+[ -f "$LIB/.kobink-progress/$book.json" ] || fail "progress is not kept in .kobink-progress"
+json "state to the device" "$(curl -s "$(api "/kobo/v1/library/$book/state")")" \
+    '.ReadingStates[0].CurrentBookmark.ProgressPercent' 33.3
+
+check "device state" "$(status -X PUT -H 'content-type: application/json' \
+    -d '{"ReadingStates":[{"CurrentBookmark":{"ProgressPercent":66.6,"ContentSourceProgressPercent":20,"Location":{"Source":"OEBPS/chapter1.xhtml","Type":"KoboSpan","Value":"kobo.2.1"}},"StatusInfo":{"Status":"Reading"}}]}' \
+    "$(api "/kobo/v1/library/$book/state")")" 200
+json "device state stored" "$(cat "$LIB/.kobink-progress/$book.json")" '.percent' 66.6
+
+token=$(curl -s -D - -o /dev/null "$(api /kobo/v1/library/sync)" | tr -d '\r' | sed -n 's/^x-kobo-synctoken: //p')
+status -X PUT -b "$jar" -H 'content-type: application/json' \
+    -d "{\"percent\":71.5,\"chapter\":\"$href\",\"chapter_percent\":50,\"page\":0,\"status\":\"Reading\"}" \
+    "$BASE/read/$book/progress" > /dev/null
+events=$(curl -s -H "x-kobo-synctoken: $token" "$(api /kobo/v1/library/sync)" | jq 'length')
+[ "$events" -ge 1 ] || fail "a progress change did not invalidate the sync token"
+say "sync after a turn" "$events"
+json "state in the sync payload" "$(curl -s "$(api /kobo/v1/library/sync)")" \
+    '[.[] | select(.NewEntitlement.BookEntitlement.Id == "'"$book"'") | .NewEntitlement.ReadingState.CurrentBookmark.ProgressPercent][0]' 71.5
+
 section "batch"
 cp "$LIB/R.F. Kuang/Babel - Rebecca F. Kuang (2022).epub" "$WORK/one.epub"
 cp "$LIB/R.F. Kuang/Babel - Rebecca F. Kuang (2022).epub" "$WORK/two.epub"
@@ -363,9 +404,13 @@ delete_id=$(printf '%s' "$sync" | jq -r '[.[] | select(.NewEntitlement.BookMetad
 [ -n "$delete_id" ] && [ "$delete_id" != "null" ] || fail "cannot find the book to delete in the sync payload"
 
 touch -d '60 days ago' "$LIB/delete-me.epub"
+status -X PUT -b "$jar" -H 'content-type: application/json' \
+    -d '{"percent":12,"chapter":"OEBPS/chapter1.xhtml","chapter_percent":4,"page":0,"status":"Reading"}' \
+    "$BASE/read/$delete_id/progress" > /dev/null
 check "delete" "$(status -X DELETE "$(api "/kobo/v1/library/$delete_id")")" 204
 check "delete again" "$(status -X DELETE "$(api "/kobo/v1/library/$delete_id")")" 204
 [ ! -f "$LIB/delete-me.epub" ] || fail "the file is still in the library"
+[ ! -f "$LIB/.kobink-progress/$delete_id.json" ] || fail "the progress survived the delete"
 [ -f "$LIB/.kobink-trash/delete-me.epub" ] || fail "the file is not at the top of the trash"
 [ -z "$(find "$LIB/.kobink-trash" -mindepth 1 -type d)" ] || fail "the trash grew a dated subfolder"
 age=$(( $(date +%s) - $(date -r "$LIB/.kobink-trash/delete-me.epub" +%s) ))
@@ -425,6 +470,28 @@ body=$(curl -s -L -F "file=@$WORK/manga/cbz/Fire Punch v03.cbz" "http://127.0.0.
 [[ $body == *"no KCC"* ]] || fail "a cbz was accepted without kcc"
 kill "$off" 2>/dev/null || true
 say "page without kcc" "hint only"
+
+section "fixed layout"
+cp "$WORK/manga/fixed/Fire Punch v05.kepub.epub" "$LIB/"
+for _ in $(seq 1 20); do
+    fixed=$(curl -s "$(api /kobo/v1/library/sync)" | jq -r '[.[] | select(.NewEntitlement.BookMetadata.Title == "Fire Punch v05")][0].NewEntitlement.BookEntitlement.Id // empty')
+    [ -n "$fixed" ] && break
+    sleep 1
+done
+[ -n "$fixed" ] || fail "the fixed-layout book did not reach the library"
+
+manifest=$(curl -s -b "$jar" "$BASE/read/$fixed/manifest")
+json "fixed layout" "$manifest" '.layout' fixed
+json "fixed pages" "$manifest" '.pages | length' 3
+
+page=$(printf '%s' "$manifest" | jq -r '.pages[1].src')
+check "page image" "$(status -b "$jar" "$BASE/read/$fixed/res/$page")" 200
+check "page image type" "$(header content-type "$BASE/read/$fixed/res/$page" -b "$jar")" image/png
+
+check "page position" "$(status -X PUT -b "$jar" -H 'content-type: application/json' \
+    -d '{"percent":66.6,"chapter":"","chapter_percent":0,"page":2,"status":"Reading"}' \
+    "$BASE/read/$fixed/progress")" 204
+json "page position read" "$(curl -s -b "$jar" "$BASE/read/$fixed/progress")" '.page' 2
 
 section "background"
 for _ in $(seq 1 20); do

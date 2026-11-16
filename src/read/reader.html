@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>{{TITLE}} · kobink</title>
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0c0c0d" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="stylesheet" href="/style.css?v=2">
+<link rel="stylesheet" href="/reader.css?v=1">
+</head>
+<body class="reader-page" data-book="{{ID}}">
+
+<header class="reader-bar">
+  <a class="reader-back" href="/read" aria-label="Back to the library">←</a>
+  <p class="reader-title">{{TITLE}}</p>
+  <button class="reader-contents" type="button" aria-expanded="false">Contents</button>
+</header>
+
+<main class="reader-stage" id="stage">
+  <iframe id="page" title="{{TITLE}}" sandbox="allow-same-origin"></iframe>
+  <img id="plate" alt="" hidden>
+  <button class="reader-zone reader-prev" type="button" aria-label="Previous page"></button>
+  <button class="reader-zone reader-next" type="button" aria-label="Next page"></button>
+</main>
+
+<footer class="reader-rail"><span id="rail"><i></i></span><b id="percent">0%</b></footer>
+
+<nav class="reader-toc" id="toc" hidden></nav>
+
+<script src="/reader.js?v=1" defer></script>
+
+</body>
+</html>

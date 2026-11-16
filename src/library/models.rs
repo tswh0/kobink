@@ -399,6 +399,25 @@ pub async fn refresh(library: Arc<Mutex<LibraryState>>) {
 
     tracing::info!("library refreshed: {} books", count);
 
+    let (kept, prune_path): (HashSet<String>, String) = {
+        let state = library
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+        (
+            state.books.iter().map(|book| book.id.to_string()).collect(),
+            state.path.clone(),
+        )
+    };
+
+    tokio::task::spawn_blocking(move || {
+        let removed = crate::library::progress::prune(&prune_path, &kept);
+
+        if removed > 0 {
+            tracing::info!("progress: removed {removed} entr(y/ies) of books that are gone");
+        }
+    });
+
     if !added.is_empty() {
         tokio::task::spawn_blocking(move || {
             for book in &added {

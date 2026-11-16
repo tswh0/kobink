@@ -59,6 +59,10 @@ appends `/v1` itself. Press Sync afterwards.
 - A book-drop page at the domain root takes EPUB, CBZ and PDF from the browser, several at once. CBZ and PDF are
   converted with [KCC](https://github.com/ciromattia/kcc) for your e-reader, which needs `LIBRARY_WRITE=:rw` and `ghcr.io/tswh0/kobink:conversion`
   (~400 MB) or a local `KOBINK_TARGET=conversion` build; plain `latest` takes EPUB only.
+- The library also opens in a browser at `/read`, behind the same key: a shelf of covers, a paginated
+  reader for EPUBs and a page-flip viewer for fixed-layout kepubs. Progress goes both ways — a page
+  turned in the browser reaches the reader at its next sync, and where you stop on the reader is where
+  the browser opens.
 - Deleting a book on the reader moves its file into `.kobink-trash/` at the top of the library.
   `LIBRARY_TRASH=off` deletes it outright instead.
 - Downloads stream and answer `Range`, so an interrupted transfer resumes instead of starting over.
@@ -81,6 +85,8 @@ against the real binary on every push. The SQL dependencies and demo endpoints a
 - `.epub` for books, `.kepub.epub` (KCC) for manga; a CBZ is counted in the scan but never synced.
 - `COVER_CACHE_DAYS` and `TRASH_DAYS` (default 30, `0` keeps forever) prune the cover cache and
   `.kobink-trash`.
+- Reading progress is one JSON per book in `.kobink-progress/` inside the library; it goes with the
+  book when the book is deleted.
 - Set `API_KEY` if you want to pick the code yourself instead of using the generated one.
 - A book that refuses to update: delete it on the device and sync again.
 - The image is distroless, so there is no shell inside it. `docker exec -it kobink sh` won't
