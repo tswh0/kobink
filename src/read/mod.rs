@@ -41,7 +41,7 @@ const READER: &str = include_str!("reader.html");
 const STYLE: &str = include_str!("reader.css");
 const SCRIPT: &str = include_str!("reader.js");
 
-const COVER: (u32, u32) = (149, 223);
+const COVER: (u32, u32) = (355, 530);
 const MAX_CACHED_BOOKS: usize = 3;
 const MAX_CACHED_BYTES: u64 = 96 * 1024 * 1024;
 
@@ -182,22 +182,22 @@ async fn shelf(
             COVER.1
         );
 
-        let mut meter = String::new();
-
-        if percent > 0.0 {
+        let meter = if percent > 0.0 {
             let label = if percent >= 99.5 {
                 "Finished".to_string()
             } else {
-                format!("{:.0}%", percent)
+                format!("{percent:.0}%")
             };
 
-            meter = format!(
-                r#"<span class="read-line"><progress max="100" value="{percent:.1}"></progress><span>{label}</span></span>"#
-            );
-        }
+            format!(
+                r#"<progress max="100" value="{percent:.1}"></progress><span>{label}</span>"#
+            )
+        } else {
+            String::new()
+        };
 
         markup.push_str(&format!(
-            r#"<li><a class="book" href="/read/{id}"><span class="cover" data-initials="{initials}"><img src="{cover}" alt="" loading="lazy"></span><span class="name">{title}</span><span class="by">{author}</span>{meter}</a></li>"#,
+            r#"<li><a class="book" href="/read/{id}"><span class="cover" data-initials="{initials}"><img src="{cover}" alt="" loading="lazy"></span><span class="name">{title}</span><span class="by">{author}</span><span class="read-line">{meter}</span></a></li>"#,
             id = book.id,
             initials = escape(&initials(&book.title)),
             cover = cover,

@@ -6,6 +6,8 @@ const rail = document.querySelector('#rail i');
 const readout = document.getElementById('percent');
 const toc = document.getElementById('toc');
 const tocButton = document.querySelector('.reader-contents');
+const tocClose = document.querySelector('.reader-toc-close');
+const scrim = document.querySelector('.reader-scrim');
 
 const GAP = 40;
 const PAD = 24;
@@ -60,31 +62,44 @@ function readFrame(fraction) {
   doc.querySelectorAll('img').forEach((image) => {
     if (!image.complete) image.addEventListener('load', reflow, { once: true });
   });
+
+  swipe(doc);
+
+  doc.addEventListener('click', (event) => {
+    if (event.target.closest('a') || String(doc.getSelection())) return;
+    next();
+  });
 }
 
 function typeset(doc) {
   const width = Math.max(200, frame.clientWidth || stage.clientWidth);
   const height = Math.max(240, frame.clientHeight || stage.clientHeight);
-  const pad = width < 480 ? 16 : PAD;
+  const narrow = width < 480;
+  const pad = narrow ? 20 : PAD;
   const column = Math.max(160, width - pad * 2);
   const style = doc.getElementById('kobink-typeset') || doc.createElement('style');
+  const theme = getComputedStyle(document.body);
 
   pitch = column + GAP;
 
   style.id = 'kobink-typeset';
   style.textContent = `
-    html { height: ${height}px; overflow: hidden; }
+    html {
+      height: ${height}px; overflow: hidden;
+      color-scheme: light dark; background: ${theme.backgroundColor}; color: ${theme.color};
+    }
     body {
       margin: 0; padding: ${pad}px; width: ${width}px; height: ${height}px; box-sizing: border-box;
       column-width: ${column}px; column-gap: ${GAP}px; column-fill: auto;
       font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
-      font-size: 1.05rem; line-height: 1.62; text-align: justify; hyphens: auto;
+      font-size: 1.05rem; line-height: 1.62; hyphens: auto;
+      text-align: ${narrow ? 'start' : 'justify'}; text-indent: 0;
       background: transparent; color: inherit; overflow: visible;
       transition: transform .18s cubic-bezier(.2,.7,.3,1);
     }
     img, svg, video, table { max-width: 100%; }
     img { max-height: ${height - pad * 2 - 12}px; height: auto; object-fit: contain; }
-    p { margin: 0 0 1em; orphans: 2; widows: 2; }
+    p { margin: 0 0 0.9em !important; text-indent: 0 !important; orphans: 2; widows: 2; }
     h1, h2, h3, h4 { line-height: 1.25; text-align: start; break-after: avoid; }
     a { color: inherit; text-decoration-color: color-mix(in srgb, currentColor 45%, transparent); }
     ::selection { background: rgb(231 183 92 / 0.4); }
@@ -162,9 +177,12 @@ function warm(at) {
 function report() {
   const fixed = manifest.layout === 'fixed';
   const count = manifest.chapters.length || 1;
+  const ended = !fixed && index === count - 1 && page === pages - 1;
   const progress = fixed
     ? ((page + 1) / pages) * 100
-    : ((index + (pages > 1 ? page / pages : 0)) / count) * 100;
+    : ended
+      ? 100
+      : ((index + (pages > 1 ? page / pages : 0)) / count) * 100;
 
   current.percent = Math.round(clamp(progress, 0, 100) * 10) / 10;
   current.chapter = fixed
@@ -204,7 +222,7 @@ function save() {
 }
 
 function buildToc() {
-  toc.replaceChildren();
+  toc.querySelectorAll('h2, ol').forEach((node) => node.remove());
 
   const title = document.createElement('h2');
   title.textContent = 'Contents';
@@ -244,12 +262,22 @@ function highlight() {
 
 function toggleToc() {
   const open = toc.hidden;
+
   toc.hidden = !open;
+  scrim.hidden = !open;
   tocButton.setAttribute('aria-expanded', String(open));
+
+  if (open) {
+    requestAnimationFrame(() => {
+      const here = toc.querySelector('button.current');
+      if (here) here.scrollIntoView({ block: 'center' });
+    });
+  }
 }
 
 function closeToc() {
   toc.hidden = true;
+  scrim.hidden = true;
   tocButton.setAttribute('aria-expanded', 'false');
 }
 
@@ -300,9 +328,13 @@ function watchLinks(doc) {
   );
 }
 
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', reflow);
+
 document.querySelector('.reader-next').addEventListener('click', next);
 document.querySelector('.reader-prev').addEventListener('click', prev);
 tocButton.addEventListener('click', toggleToc);
+tocClose.addEventListener('click', closeToc);
+scrim.addEventListener('click', closeToc);
 
 addEventListener('keydown', (event) => {
   if (event.key === 'ArrowRight' || event.key === ' ' || event.key === 'PageDown') {
@@ -318,22 +350,26 @@ addEventListener('keydown', (event) => {
   if (event.key === 'Escape') closeToc();
 });
 
-let touch = null;
+function swipe(target) {
+  let start = null;
 
-stage.addEventListener('touchstart', (event) => {
-  touch = event.changedTouches[0];
-}, { passive: true });
+  target.addEventListener('touchstart', (event) => {
+    start = event.changedTouches[0];
+  }, { passive: true });
 
-stage.addEventListener('touchend', (event) => {
-  if (!touch) return;
+  target.addEventListener('touchend', (event) => {
+    if (!start) return;
 
-  const delta = event.changedTouches[0].clientX - touch.clientX;
-  touch = null;
+    const delta = event.changedTouches[0].clientX - start.clientX;
+    start = null;
 
-  if (Math.abs(delta) < 50) return;
-  if (delta < 0) next();
-  else prev();
-}, { passive: true });
+    if (Math.abs(delta) < 50) return;
+    if (delta < 0) next();
+    else prev();
+  }, { passive: true });
+}
+
+swipe(stage);
 
 function reflow() {
   clearTimeout(resizing);

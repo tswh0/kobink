@@ -10,11 +10,6 @@
     max(var(--page-pad), env(safe-area-inset-right))
     max(var(--page-pad), env(safe-area-inset-bottom))
     max(var(--page-pad), env(safe-area-inset-left));
-  background-image: repeating-linear-gradient(
-    to bottom,
-    color-mix(in srgb, var(--foreground) 4%, transparent) 0 1px,
-    transparent 1px 2rem
-  );
   -webkit-text-size-adjust: 100%;
   overscroll-behavior-y: contain;
 }
@@ -26,12 +21,16 @@
 }
 
 .shelf-head {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 1.5rem;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 0.75rem 1.5rem;
   margin-block-end: clamp(1.5rem, 4vw, 2.75rem);
+}
+
+.shelf-title {
+  grid-column: 1;
+  min-width: 0;
 }
 
 .shelf-head h1 {
@@ -49,9 +48,16 @@
   color: var(--muted-foreground);
 }
 
+.shelf-head .button {
+  grid-column: 2;
+  align-self: end;
+  min-block-size: 2.75rem;
+}
+
 .shelf-head .lede {
+  grid-column: 1 / -1;
   margin: 0;
-  max-width: 34rem;
+  max-width: 40rem;
   color: var(--muted-foreground);
   text-wrap: pretty;
 }
@@ -85,6 +91,7 @@
   overflow: hidden;
   background: var(--muted);
   box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--foreground) 10%, transparent),
     0 1px 2px rgb(0 0 0 / 0.18),
     0 10px 24px -14px rgb(0 0 0 / 0.45);
   transition: transform 0.2s cubic-bezier(0.2, 0.7, 0.3, 1), box-shadow 0.2s;
@@ -97,9 +104,10 @@
   display: grid;
   place-items: center;
   font-family: var(--font-mono);
-  font-size: 0.85rem;
-  letter-spacing: 0.14em;
-  color: var(--muted-foreground);
+  font-size: 1.15rem;
+  font-weight: var(--font-semibold);
+  letter-spacing: 0.12em;
+  color: color-mix(in srgb, var(--foreground) 55%, transparent);
   background-image: repeating-linear-gradient(
     to bottom,
     color-mix(in srgb, var(--foreground) 5%, transparent) 0 1px,
@@ -113,8 +121,7 @@
   inset-block: 0;
   inset-inline-start: 0;
   width: 3px;
-  background: linear-gradient(to bottom, var(--spine), transparent 70%);
-  opacity: 0.55;
+  background: linear-gradient(to bottom, var(--spine), transparent 78%);
 }
 
 .book .cover img {
@@ -138,6 +145,7 @@
   font-size: var(--text-6);
   font-weight: var(--font-medium);
   line-height: 1.3;
+  min-height: 2.6em;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -145,7 +153,8 @@
 }
 
 .book .by {
-  font-size: var(--text-8);
+  font-size: 0.8rem;
+  line-height: 1.35;
   color: var(--muted-foreground);
   display: -webkit-box;
   -webkit-line-clamp: 1;
@@ -157,15 +166,16 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  min-height: 1.1rem;
   font-family: var(--font-mono);
   font-size: var(--text-8);
-  color: var(--muted-foreground);
+  color: var(--spine);
 }
 
 .book progress {
   flex: 1;
   appearance: none;
-  height: 2px;
+  height: 3px;
   border: 0;
   background: color-mix(in srgb, var(--foreground) 12%, transparent);
   border-radius: var(--radius-full);
@@ -208,11 +218,15 @@
 }
 
 .reader-back {
+  display: grid;
+  place-items: center;
+  min-inline-size: 2.75rem;
+  min-block-size: 2.75rem;
+  margin-inline-start: -0.5rem;
   color: var(--muted-foreground);
   text-decoration: none;
   font-size: var(--text-4);
   line-height: 1;
-  padding: 0.3rem 0.5rem;
   border-radius: var(--radius-small);
 }
 
@@ -233,6 +247,7 @@
 }
 
 .reader-contents {
+  min-block-size: 2.75rem;
   font: inherit;
   font-size: var(--text-7);
   font-family: var(--font-mono);
@@ -242,7 +257,7 @@
   background: none;
   border: 1px solid var(--border);
   border-radius: var(--radius-full);
-  padding: 0.3rem 0.8rem;
+  padding-inline: 0.9rem;
   cursor: pointer;
 }
 
@@ -261,9 +276,10 @@
 }
 
 #page {
-  width: 100%;
+  width: min(100%, 34rem);
   height: 100%;
   min-width: 0;
+  margin-inline: auto;
   border: 0;
   display: block;
   background: transparent;
@@ -349,13 +365,29 @@
   transition: width 0.25s ease;
 }
 
+.reader-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 3;
+  border: 0;
+  padding: 0;
+  background: rgb(0 0 0 / 0.35);
+  backdrop-filter: blur(2px);
+}
+
+.reader-scrim[hidden] {
+  display: none;
+}
+
 .reader-toc {
   position: fixed;
   inset-block: 0;
   inset-inline-end: 0;
   width: min(22rem, 88vw);
-  padding: 1.1rem 1.2rem 2rem;
-  background: var(--background);
+  padding: calc(1.1rem + env(safe-area-inset-top))
+    calc(1.2rem + env(safe-area-inset-right))
+    calc(2rem + env(safe-area-inset-bottom)) 1.2rem;
+  background: var(--card);
   border-inline-start: 1px solid var(--border);
   box-shadow: var(--shadow-large);
   overflow-y: auto;
@@ -365,6 +397,26 @@
 
 .reader-toc[hidden] {
   display: none;
+}
+
+.reader-toc-close {
+  position: absolute;
+  inset-block-start: calc(0.5rem + env(safe-area-inset-top));
+  inset-inline-end: calc(0.6rem + env(safe-area-inset-right));
+  display: grid;
+  place-items: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  font: inherit;
+  font-size: var(--text-3);
+  color: var(--muted-foreground);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.reader-toc-close:hover {
+  color: var(--foreground);
 }
 
 .reader-toc h2 {
@@ -382,9 +434,12 @@
   padding: 0;
 }
 
-.reader-toc button {
+.reader-toc li button {
   display: block;
   width: 100%;
+  min-block-size: 2.75rem;
+  white-space: normal;
+  overflow-wrap: anywhere;
   text-align: start;
   font: inherit;
   font-size: var(--text-6);
@@ -396,12 +451,12 @@
   cursor: pointer;
 }
 
-.reader-toc button:hover {
+.reader-toc li button:hover {
   color: var(--foreground);
   background: var(--muted);
 }
 
-.reader-toc button.current {
+.reader-toc li button.current {
   color: var(--foreground);
   font-weight: var(--font-medium);
   box-shadow: inset 2px 0 0 var(--spine);
@@ -423,6 +478,7 @@
 }
 
 .fixed #plate {
+  background: #141414;
   cursor: pointer;
   user-select: none;
   -webkit-user-drag: none;
@@ -464,10 +520,11 @@
   .book .name {
     font-size: var(--text-7);
     -webkit-line-clamp: 2;
+    min-height: 2.6em;
   }
 
   .book .by {
-    font-size: 0.72rem;
+    font-size: 0.8rem;
   }
 
   .book .cover {
