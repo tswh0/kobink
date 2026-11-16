@@ -51,7 +51,7 @@ def make_epub(path, title, author, layout="reflowable", series=None, number=None
   </metadata>
   <manifest>
     <item id="c1" href="chapter1.xhtml" media-type="application/xhtml+xml"/>
-    <item id="cover-img" href="cover.png" media-type="image/png" properties="cover-image"/>
+    <item id="cover-img" href="cover.png" media-type="image/png"/>
   </manifest>
   <spine><itemref idref="c1"/></spine>
 </package>"""
@@ -73,6 +73,70 @@ def make_epub(path, title, author, layout="reflowable", series=None, number=None
         epub.writestr("OEBPS/cover.png", PNG)
 
 
+def make_fixed(path, title="Fire Punch v05", pages=3):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+
+    items = "".join(
+        f'<item id="p{index}" href="text/p{index}.xhtml" media-type="application/xhtml+xml"/>'
+        for index in range(1, pages + 1)
+    )
+    images = "".join(
+        f'<item id="i{index}" href="images/p{index}.png" media-type="image/png"/>'
+        for index in range(1, pages + 1)
+    )
+    spine = "".join(f'<itemref idref="p{index}"/>' for index in range(1, pages + 1))
+    nav = "".join(
+        f'<li><a href="text/p{index}.xhtml">Page {index}</a></li>'
+        for index in range(1, pages + 1)
+    )
+
+    opf = f"""<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:identifier id="id">urn:uuid:12345678-1234-1234-1234-123456789abd</dc:identifier>
+    <dc:title>{title}</dc:title>
+    <dc:creator>Tatsuki Fujimoto</dc:creator>
+    <dc:language>en</dc:language>
+    <meta property="dcterms:modified">2026-01-01T00:00:00Z</meta>
+    <meta property="rendition:layout">pre-paginated</meta>
+    <meta name="cover" content="i1"/>
+  </metadata>
+  <manifest>
+    <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+    {items}
+    {images}
+  </manifest>
+  <spine>{spine}</spine>
+</package>"""
+
+    with zipfile.ZipFile(path, "w") as epub:
+        epub.writestr("mimetype", "application/epub+zip", compress_type=zipfile.ZIP_STORED)
+        epub.writestr(
+            "META-INF/container.xml",
+            """<?xml version="1.0"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles>
+</container>""",
+        )
+        epub.writestr("OEBPS/content.opf", opf)
+        epub.writestr(
+            "OEBPS/nav.xhtml",
+            f"""<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+<body><nav epub:type="toc"><ol>{nav}</ol></nav></body></html>""",
+        )
+
+        for index in range(1, pages + 1):
+            epub.writestr(
+                f"OEBPS/text/p{index}.xhtml",
+                f"""<html xmlns="http://www.w3.org/1999/xhtml"><body>
+<div><img src="../images/p{index}.png" alt=""/></div>
+</body></html>""",
+            )
+            epub.writestr(
+                f"OEBPS/images/p{index}.png", solid_png(800, 1200, (40, 40, 40 + index))
+            )
+
+
 def make_cbz(path, pages=2):
     os.makedirs(os.path.dirname(path), exist_ok=True)
 
@@ -85,6 +149,7 @@ if sys.argv[1] == "--manga":
     out = sys.argv[2]
     make_cbz(f"{out}/cbz/Fire Punch v03.cbz")
     make_cbz(f"{out}/cbz/fail.cbz")
+    make_fixed(f"{out}/fixed/Fire Punch v05.kepub.epub")
 
     with open(f"{out}/cbz/Fire Punch v04.pdf", "wb") as pdf:
         pdf.write(b"%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\n%%EOF\n")

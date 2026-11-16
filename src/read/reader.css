@@ -1,0 +1,552 @@
+:root {
+  --spine: light-dark(#8a5a00, #e7b75c);
+  --page-pad: clamp(1.1rem, 4vw, 2.5rem);
+}
+
+.shelf-page {
+  margin: 0;
+  min-height: 100dvh;
+  padding: max(var(--page-pad), env(safe-area-inset-top))
+    max(var(--page-pad), env(safe-area-inset-right))
+    max(var(--page-pad), env(safe-area-inset-bottom))
+    max(var(--page-pad), env(safe-area-inset-left));
+  -webkit-text-size-adjust: 100%;
+  overscroll-behavior-y: contain;
+}
+
+.shelf {
+  max-width: 72rem;
+  margin-inline: auto;
+  padding-block: clamp(0.5rem, 3vw, 2rem);
+}
+
+.shelf-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 0.75rem 1.5rem;
+  margin-block-end: clamp(1.5rem, 4vw, 2.75rem);
+}
+
+.shelf-title {
+  grid-column: 1;
+  min-width: 0;
+}
+
+.shelf-head h1 {
+  margin: 0 0 0.35rem;
+  font-size: clamp(1.7rem, 4vw, 2.4rem);
+  letter-spacing: -0.03em;
+}
+
+.shelf-head .eyebrow {
+  margin: 0 0 0.25rem;
+  font-family: var(--font-mono);
+  font-size: var(--text-8);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+
+.shelf-head .button {
+  grid-column: 2;
+  align-self: end;
+  min-block-size: 2.75rem;
+}
+
+.shelf-head .lede {
+  grid-column: 1 / -1;
+  margin: 0;
+  max-width: 40rem;
+  color: var(--muted-foreground);
+  text-wrap: pretty;
+}
+
+.shelf-head .button {
+  white-space: nowrap;
+}
+
+.shelf-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
+  gap: clamp(1.1rem, 2.5vw, 1.9rem);
+}
+
+.book {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  color: inherit;
+  text-decoration: none;
+  outline-offset: 6px;
+}
+
+.book .cover {
+  position: relative;
+  aspect-ratio: 2 / 3;
+  border-radius: 3px;
+  overflow: hidden;
+  background: var(--muted);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--foreground) 10%, transparent),
+    0 1px 2px rgb(0 0 0 / 0.18),
+    0 10px 24px -14px rgb(0 0 0 / 0.45);
+  transition: transform 0.2s cubic-bezier(0.2, 0.7, 0.3, 1), box-shadow 0.2s;
+}
+
+.book .cover::before {
+  content: attr(data-initials);
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-family: var(--font-mono);
+  font-size: 1.15rem;
+  font-weight: var(--font-semibold);
+  letter-spacing: 0.12em;
+  color: color-mix(in srgb, var(--foreground) 55%, transparent);
+  background-image: repeating-linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--foreground) 5%, transparent) 0 1px,
+    transparent 1px 0.7rem
+  );
+}
+
+.book .cover::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  width: 3px;
+  background: linear-gradient(to bottom, var(--spine), transparent 78%);
+}
+
+.book .cover img {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.book:hover .cover,
+.book:focus-visible .cover {
+  transform: translateY(-3px);
+  box-shadow:
+    0 2px 4px rgb(0 0 0 / 0.2),
+    0 18px 34px -16px rgb(0 0 0 / 0.5);
+}
+
+.book .name {
+  font-size: var(--text-6);
+  font-weight: var(--font-medium);
+  line-height: 1.3;
+  min-height: 2.6em;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.book .by {
+  font-size: 0.8rem;
+  line-height: 1.35;
+  color: var(--muted-foreground);
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.book .read-line {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 1.1rem;
+  font-family: var(--font-mono);
+  font-size: var(--text-8);
+  color: var(--spine);
+}
+
+.book progress {
+  flex: 1;
+  appearance: none;
+  height: 3px;
+  border: 0;
+  background: color-mix(in srgb, var(--foreground) 12%, transparent);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+}
+
+.book progress::-webkit-progress-bar {
+  background: transparent;
+}
+
+.book progress::-webkit-progress-value {
+  background: var(--spine);
+}
+
+.book progress::-moz-progress-bar {
+  background: var(--spine);
+}
+
+.reader-page {
+  position: fixed;
+  inset: 0;
+  margin: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
+  background: var(--background);
+  overscroll-behavior: none;
+}
+
+.reader-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  padding: max(0.55rem, env(safe-area-inset-top))
+    max(var(--page-pad), env(safe-area-inset-right)) 0.55rem
+    max(var(--page-pad), env(safe-area-inset-left));
+  border-block-end: 1px solid var(--border);
+  background: var(--background);
+  z-index: 3;
+}
+
+.reader-back {
+  display: grid;
+  place-items: center;
+  min-inline-size: 2.75rem;
+  min-block-size: 2.75rem;
+  margin-inline-start: -0.5rem;
+  color: var(--muted-foreground);
+  text-decoration: none;
+  font-size: var(--text-4);
+  line-height: 1;
+  border-radius: var(--radius-small);
+}
+
+.reader-back:hover {
+  color: var(--foreground);
+  background: var(--muted);
+}
+
+.reader-title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--text-7);
+  color: var(--muted-foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.reader-contents {
+  min-block-size: 2.75rem;
+  font: inherit;
+  font-size: var(--text-7);
+  font-family: var(--font-mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+  background: none;
+  border: 1px solid color-mix(in srgb, var(--foreground) 32%, transparent);
+  border-radius: var(--radius-full);
+  padding-inline: 0.9rem;
+  cursor: pointer;
+}
+
+.reader-contents:hover,
+.reader-contents[aria-expanded="true"] {
+  color: var(--foreground);
+  border-color: var(--foreground);
+}
+
+.reader-stage {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+#page {
+  width: min(100%, 34rem);
+  height: 100%;
+  min-width: 0;
+  margin-inline: auto;
+  border: 0;
+  display: block;
+  background: transparent;
+}
+
+#plate {
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  object-position: center;
+  display: block;
+  background: var(--muted);
+}
+
+#page[hidden],
+#plate[hidden] {
+  display: none;
+}
+
+.reader-zone {
+  position: absolute;
+  inset-block: 0;
+  width: 16%;
+  min-width: 3rem;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.reader-zone:hover {
+  background: linear-gradient(
+    to right,
+    color-mix(in srgb, var(--foreground) 4%, transparent),
+    transparent
+  );
+}
+
+.reader-prev {
+  inset-inline-start: 0;
+}
+
+.reader-next {
+  inset-inline-end: 0;
+}
+
+.reader-next:hover {
+  background: linear-gradient(
+    to left,
+    color-mix(in srgb, var(--foreground) 4%, transparent),
+    transparent
+  );
+}
+
+.reader-rail {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.4rem max(var(--page-pad), env(safe-area-inset-right))
+    max(0.4rem, env(safe-area-inset-bottom))
+    max(var(--page-pad), env(safe-area-inset-left));
+  border-block-start: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: var(--text-8);
+  color: var(--muted-foreground);
+}
+
+.reader-rail > span {
+  flex: 1;
+  height: 2px;
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--foreground) 12%, transparent);
+  overflow: hidden;
+}
+
+.reader-rail i {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--spine);
+  transition: width 0.25s ease;
+}
+
+.reader-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 3;
+  border: 0;
+  padding: 0;
+  background: rgb(0 0 0 / 0.5);
+  backdrop-filter: blur(8px);
+}
+
+.reader-scrim[hidden] {
+  display: none;
+}
+
+.reader-toc {
+  position: fixed;
+  inset-block: 0;
+  inset-inline-end: 0;
+  width: min(22rem, 88vw);
+  padding: calc(1.1rem + env(safe-area-inset-top))
+    calc(1.2rem + env(safe-area-inset-right))
+    calc(2rem + env(safe-area-inset-bottom)) 1.2rem;
+  background: var(--card);
+  border-inline-start: 1px solid var(--border);
+  box-shadow: var(--shadow-large);
+  overflow-y: auto;
+  z-index: 4;
+  animation: slide-in 0.22s cubic-bezier(0.2, 0.7, 0.3, 1) both;
+}
+
+.reader-toc[hidden] {
+  display: none;
+}
+
+.reader-toc-close {
+  position: absolute;
+  inset-block-start: calc(0.5rem + env(safe-area-inset-top));
+  inset-inline-end: calc(0.6rem + env(safe-area-inset-right));
+  display: grid;
+  place-items: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  font: inherit;
+  font-size: var(--text-3);
+  color: var(--muted-foreground);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.reader-toc-close:hover {
+  color: var(--foreground);
+}
+
+.reader-toc h2 {
+  margin: 0.2rem 0 0.9rem;
+  font-family: var(--font-mono);
+  font-size: var(--text-8);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+
+.reader-toc ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.reader-toc li button {
+  display: block;
+  width: 100%;
+  min-block-size: 2.75rem;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: start;
+  font: inherit;
+  font-size: var(--text-6);
+  color: var(--muted-foreground);
+  background: none;
+  border: 0;
+  border-radius: var(--radius-small);
+  padding: 0.55rem 0.6rem;
+  cursor: pointer;
+}
+
+.reader-toc li button:hover {
+  color: var(--foreground);
+  background: var(--muted);
+}
+
+.reader-toc li button.current {
+  color: var(--foreground);
+  font-weight: var(--font-medium);
+  box-shadow: inset 2px 0 0 var(--spine);
+}
+
+@keyframes slide-in {
+  from {
+    transform: translateX(12%);
+    opacity: 0;
+  }
+}
+
+.fixed .reader-zone {
+  width: 50%;
+}
+
+.fixed .reader-zone:hover {
+  background: transparent;
+}
+
+.fixed #plate {
+  background: light-dark(var(--muted), #141414);
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+@media (max-width: 640px) {
+  .shelf {
+    padding-block: 0;
+  }
+
+  .shelf-head {
+    align-items: flex-start;
+    gap: 0.9rem;
+    margin-block-end: 1.15rem;
+  }
+
+  .shelf-head h1 {
+    font-size: 1.6rem;
+  }
+
+  .shelf-head .lede {
+    font-size: var(--text-7);
+    max-width: 22rem;
+  }
+
+  .shelf-head .button {
+    padding-block: 0.6rem;
+  }
+
+  .shelf-grid {
+    grid-template-columns: repeat(auto-fill, minmax(6.3rem, 1fr));
+    gap: 0.95rem 0.8rem;
+  }
+
+  .book {
+    gap: 0.4rem;
+  }
+
+  .book .name {
+    font-size: var(--text-7);
+    -webkit-line-clamp: 2;
+    min-height: 2.6em;
+  }
+
+  .book .by {
+    font-size: 0.8rem;
+  }
+
+  .book .cover {
+    box-shadow:
+      0 1px 2px rgb(0 0 0 / 0.14),
+      0 6px 14px -10px rgb(0 0 0 / 0.4);
+  }
+
+  .book progress {
+    height: 2px;
+  }
+
+  .reader-bar,
+  .reader-rail {
+    padding-inline: 0.85rem;
+  }
+
+  .reader-title {
+    font-size: var(--text-8);
+  }
+
+  .reader-zone {
+    width: 22%;
+  }
+}

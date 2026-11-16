@@ -17,14 +17,21 @@ pub struct AuthDeviceRequest {
 pub struct SyncToken {
     pub version: u32,
     pub library: u64,
+    #[serde(default)]
+    pub state: u64,
 }
 
 impl SyncToken {
-    pub fn new(library: u64) -> Self {
+    pub fn new(library: u64, state: u64) -> Self {
         Self {
-            version: 1,
+            version: 2,
             library,
+            state,
         }
+    }
+
+    pub fn current(&self, library: u64, state: u64) -> bool {
+        self.version == 2 && self.library == library && self.state == state
     }
 
     pub fn encode(&self) -> String {

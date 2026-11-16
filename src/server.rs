@@ -9,6 +9,7 @@ use crate::{
     auth,
     drop,
     kobo::{self, create_kobo_router},
+    read,
     library::{
         create_download_router,
         models::{refresh, LibraryState},
@@ -36,6 +37,8 @@ pub async fn start_server() {
 
     let arcref = Arc::new(Mutex::new(LibraryState::empty(&library_path)));
 
+    crate::library::progress::init(&library_path);
+
     spawn_library_refresh(Arc::clone(&arcref));
     spawn_retention(library_path.clone(), covers_path);
 
@@ -48,6 +51,7 @@ pub async fn start_server() {
         .nest(&format!("/{api_key}/download"), create_download_router())
         .merge(kobo::covers::create_cover_router(&format!("/{api_key}")))
         .merge(drop::create_drop_router(&format!("/{api_key}")))
+        .merge(read::create_read_router().layer(CompressionLayer::new()))
         .fallback(not_found)
         .layer(middleware::from_fn(security_headers))
         .layer(middleware::from_fn(logging::log_request_response))
@@ -162,7 +166,10 @@ async fn security_headers(
     request: axum::extract::Request,
     next: middleware::Next,
 ) -> axum::response::Response {
-    let kobo = request.uri().path().contains("/kobo/v1/");
+    let path = request.uri().path().to_string();
+    let kobo = path.contains("/kobo/v1/");
+    let book_file = path.starts_with("/read/") && path.contains("/res/");
+    let reader = path.starts_with("/read");
     let mut response = next.run(request).await;
     let headers = response.headers_mut();
 
@@ -174,21 +181,38 @@ async fn security_headers(
         header::X_CONTENT_TYPE_OPTIONS,
         HeaderValue::from_static("nosniff"),
     );
-    headers.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
     headers.insert(
         header::REFERRER_POLICY,
         HeaderValue::from_static("no-referrer"),
     );
-    headers.insert(
-        header::CONTENT_SECURITY_POLICY,
-        HeaderValue::from_static(
-            "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; \
-             connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
-        ),
-    );
+
+    if book_file {
+        headers.insert(
+            header::X_FRAME_OPTIONS,
+            HeaderValue::from_static("SAMEORIGIN"),
+        );
+        headers.insert(header::CONTENT_SECURITY_POLICY, HeaderValue::from_static(BOOK_CSP));
+    } else {
+        headers.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
+        headers.insert(
+            header::CONTENT_SECURITY_POLICY,
+            HeaderValue::from_static(if reader { READER_CSP } else { PAGE_CSP }),
+        );
+    }
 
     response
 }
+
+const PAGE_CSP: &str = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; \
+     connect-src 'self'; form-action 'self'; base-uri 'none'; manifest-src 'self'; worker-src 'self'; \
+     frame-ancestors 'none'";
+
+const READER_CSP: &str = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; \
+     connect-src 'self'; form-action 'self'; base-uri 'none'; frame-src 'self'; manifest-src 'self'; \
+     worker-src 'self'; frame-ancestors 'none'";
+
+const BOOK_CSP: &str = "default-src 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; \
+     font-src 'self'; media-src 'self'; frame-ancestors 'self'; sandbox allow-same-origin";
 
 async fn not_found(uri: axum::http::Uri) -> (StatusCode, String) {
     let path = uri.path();

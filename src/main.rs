@@ -2,6 +2,7 @@ mod auth;
 mod drop;
 mod kobo;
 mod library;
+mod read;
 mod server;
 
 use server::start_server;

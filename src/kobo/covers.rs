@@ -91,7 +91,7 @@ fn cover(book_id: &str, path: PathBuf, width: u32, height: u32) -> Option<Vec<u8
     }
 
     let mut doc = EpubDoc::new(&path).ok()?;
-    let (data, _) = doc.get_cover()?;
+    let data = cover_data(&mut doc)?;
 
     if data.len() > MAX_COVER_BYTES {
         warn!(
@@ -137,6 +137,40 @@ pub fn prewarm(book: &Book) {
     }
 
     let _ = cover(&id, book.path.clone(), PREWARM[0].0, PREWARM[0].1);
+}
+
+fn cover_data<R: std::io::Read + std::io::Seek>(doc: &mut EpubDoc<R>) -> Option<Vec<u8>> {
+    if let Some((data, _)) = doc.get_cover() {
+        return Some(data);
+    }
+
+    let meta = doc
+        .mdata("cover")
+        .map(|item| item.value.trim().to_string())
+        .filter(|value| !value.is_empty());
+
+    if let Some(id) = meta {
+        if let Some(path) = doc.resources.get(&id).map(|resource| resource.path.clone()) {
+            if let Some(data) = doc.get_resource_by_path(path) {
+                return Some(data);
+            }
+        }
+
+        if let Some(data) = doc.get_resource_by_path(&id) {
+            return Some(data);
+        }
+    }
+
+    let first = doc
+        .spine
+        .first()
+        .and_then(|item| doc.resources.get(&item.idref))
+        .map(|resource| resource.path.to_string_lossy().replace('\\', "/"))?;
+    let html = doc.get_resource_str_by_path(&first)?;
+    let src = crate::library::epub::first_image(&html)?;
+    let target = crate::library::epub::resolve(&first, &src);
+
+    doc.get_resource_by_path(target)
 }
 
 fn decode(data: &[u8]) -> Option<DynamicImage> {

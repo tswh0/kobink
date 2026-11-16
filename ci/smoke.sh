@@ -296,7 +296,7 @@ say "image template" "$template"
 
 section "drop"
 check "drop page" "$(status "$(api /drop)")" 200
-check "drop without key" "$(status "$BASE/drop")" 404
+check "drop without a cookie" "$(status "$BASE/drop")" 303
 check "stylesheet" "$(status "$BASE/style.css")" 200
 check "multiple files" "$(curl -s "$(api /drop)" | grep -c 'name="file" accept="[^"]*" multiple')" 1
 
@@ -316,24 +316,33 @@ rm -f "$LIB/drop-test.kepub.epub"
 
 section "root"
 check "root offers the key" "$(status "$BASE/")" 200
-curl -s "$BASE/" | grep -q 'name="key"' || fail "root did not ask for the key"
+[[ $(curl -s "$BASE/") == *'name="key"'* ]] || fail "root did not ask for the key"
 [[ $(curl -s "$BASE/") == *'name="file"'* ]] && fail "root showed the upload without a key"
-curl -s "$BASE/?status=bad" | grep -q "does not match" || fail "a wrong key was not explained"
+[[ $(curl -s "$BASE/?status=bad") == *"does not match"* ]] || fail "a wrong key was not explained"
+check "drop needs a cookie" "$(status "$BASE/drop")" 303
 check "favicon" "$(status "$BASE/favicon.ico")" 200
 check "page style" "$(status "$BASE/page.css")" 200
 check "page script" "$(status "$BASE/app.js")" 200
 check "nosniff" "$(header x-content-type-options "$BASE/")" nosniff
 check "csp" "$(header_value content-security-policy "$BASE/" | cut -c1-21)" "default-src 'none'; s"
-curl -s "$BASE/app.js" | grep -q "XMLHttpRequest" || fail "app.js is not the upload script"
-curl -s "$BASE/" | grep -q '</style>' && fail "the login page still carries inline style"
+[[ $(curl -s "$BASE/app.js") == *"XMLHttpRequest"* ]] || fail "app.js is not the upload script"
+[[ $(curl -s "$BASE/") != *'</style>'* ]] || fail "the login page still carries inline style"
 check "favicon type" "$(header content-type "$BASE/favicon.ico")" image/x-icon
+check "reader style" "$(status "$BASE/reader.css")" 200
+check "reader script" "$(status "$BASE/reader.js")" 200
+
+if command -v node >/dev/null; then
+    node --check "$DIR/../src/read/reader.js" || fail "the reader script does not parse"
+    say "reader script parses" yes
+fi
 
 jar=$WORK/jar.txt
 check "wrong key" "$(curl -s -o /dev/null -w '%{http_code}' -c "$jar" -d "key=wrong" "$BASE/")" 303
 [[ $(curl -s -b "$jar" "$BASE/") == *'name="file"'* ]] && fail "a wrong key unlocked the page"
 
 check "right key" "$(curl -s -o /dev/null -w '%{http_code}' -c "$jar" -d "key=$KEY" "$BASE/")" 303
-curl -s -b "$jar" "$BASE/" | grep -q 'name="file"' || fail "the right key did not unlock the page"
+[[ $(curl -s -b "$jar" "$BASE/drop") == *'name="file"'* ]] || fail "the right key did not unlock the drop page"
+[[ $(curl -s -b "$jar" "$BASE/") == *'class="shelf-grid"'* ]] || fail "the right key did not unlock the shelf"
 
 check "upload without a cookie" "$(status -X POST -F "file=@$WORK/drop-test.kepub.epub" "$BASE/upload")" 303
 
@@ -341,6 +350,117 @@ body=$(curl -s -L -b "$jar" -F "file=@$WORK/drop-test.kepub.epub" "$BASE/upload"
 [[ $body == *"Book added"* ]] || fail "a cookie upload did not confirm"
 json "books after root upload" "$(curl -s "$(api /kobo/v1/library/sync)")" 'length' 6
 rm -f "$LIB/drop-test.kepub.epub"
+
+section "read"
+for _ in $(seq 1 20); do
+    [ "$(curl -s "$(api /kobo/v1/library/sync)" | jq 'length')" -eq 5 ] && break
+    sleep 1
+done
+
+check "read redirects to the shelf" "$(status "$BASE/read")" 303
+shelf=$(curl -s -b "$jar" "$BASE/")
+[[ $shelf == *'class="shelf-grid"'* ]] || fail "the shelf does not render"
+[[ $shelf == *'/reader.css'* ]] || fail "the shelf does not ask for the reader stylesheet"
+[[ $(curl -s "$BASE/reader.css") == *'#page[hidden]'* ]] || fail "the reader css leaves the empty frame on top of the page plate"
+book=$(sed -n 's#.*href="/read/\([0-9a-f-]\{36\}\)".*#\1#p' <<< "$shelf" | head -1)
+[ -n "$book" ] || fail "the shelf shows no book"
+
+check "reader page" "$(status -b "$jar" "$BASE/read/$book")" 200
+check "shelf gzip" "$(header_value content-encoding "$BASE/" -b "$jar" -H 'Accept-Encoding: gzip')" gzip
+check "shelf is never cached" "$(header_value cache-control "$BASE/" -b "$jar")" no-store
+check "versioned asset is immutable" \
+    "$(header_value cache-control "$BASE/reader.css?v=1" | grep -c immutable)" 1
+manifest=$(curl -s -b "$jar" "$BASE/read/$book/manifest")
+json "manifest title" "$manifest" '.title | length > 0' true
+json "manifest chapters" "$manifest" '.chapters | length > 0' true
+href=$(printf '%s' "$manifest" | jq -r '.chapters[0].href')
+
+chapter=$(curl -s -D "$HDRS" -b "$jar" "$BASE/read/$book/res/$href")
+[[ $chapter == *"<html"* ]] || fail "a chapter did not come back as html"
+grep -qi 'x-frame-options: SAMEORIGIN' "$HDRS" || fail "a chapter is not frameable from the reader"
+grep -qi "content-security-policy:.*sandbox" "$HDRS" || fail "a chapter is not sandboxed"
+check "chapter traversal" "$(status --path-as-is -b "$jar" "$BASE/read/$book/res/../META-INF/container.xml")" 404
+check "manifest without a cookie" "$(status "$BASE/read/$book/manifest")" 404
+check "progress without a cookie" "$(status -X PUT -H 'content-type: application/json' \
+    -d '{"percent":1,"chapter":"x","chapter_percent":0,"page":0,"status":"Reading"}' \
+    "$BASE/read/$book/progress")" 404
+
+check "progress write" "$(status -X PUT -b "$jar" -H 'content-type: application/json' \
+    -d "{\"percent\":33.3,\"chapter\":\"$href\",\"chapter_percent\":10,\"page\":0,\"status\":\"Reading\"}" \
+    "$BASE/read/$book/progress")" 204
+json "progress stored" "$(cat "$LIB/.kobink-progress/$book.json")" '.percent == 33.3' true
+[ -f "$LIB/.kobink-progress/$book.json" ] || fail "progress is not kept in .kobink-progress"
+json "state to the device" "$(curl -s "$(api "/kobo/v1/library/$book/state")")" \
+    '.ReadingStates[0].CurrentBookmark.ProgressPercent' 33.3
+
+check "device state" "$(status -X PUT -H 'content-type: application/json' \
+    -d '{"ReadingStates":[{"CurrentBookmark":{"ProgressPercent":66.6,"ContentSourceProgressPercent":20,"Location":{"Source":"OEBPS/chapter1.xhtml","Type":"KoboSpan","Value":"kobo.2.1"}},"StatusInfo":{"Status":"Reading"}}]}' \
+    "$(api "/kobo/v1/library/$book/state")")" 200
+json "device state stored" "$(cat "$LIB/.kobink-progress/$book.json")" '.percent' 66.6
+
+token=$(curl -s -D - -o /dev/null "$(api /kobo/v1/library/sync)" | tr -d '\r' | sed -n 's/^x-kobo-synctoken: //p')
+status -X PUT -b "$jar" -H 'content-type: application/json' \
+    -d "{\"percent\":71.5,\"chapter\":\"$href\",\"chapter_percent\":50,\"page\":0,\"status\":\"Reading\"}" \
+    "$BASE/read/$book/progress" > /dev/null
+events=$(curl -s -H "x-kobo-synctoken: $token" "$(api /kobo/v1/library/sync)" | jq 'length')
+[ "$events" -ge 1 ] || fail "a progress change did not invalidate the sync token"
+say "sync after a turn" "$events"
+json "state in the sync payload" "$(curl -s "$(api /kobo/v1/library/sync)")" \
+    '[.[] | select(.NewEntitlement.BookEntitlement.Id == "'"$book"'") | .NewEntitlement.ReadingState.CurrentBookmark.ProgressPercent][0]' 71.5
+
+section "installable"
+manifest=$(curl -s "$BASE/manifest.webmanifest")
+json "manifest start" "$manifest" '.start_url' "/"
+json "manifest display" "$manifest" '.display' "standalone"
+json "manifest icons" "$manifest" '[.icons[] | select(.sizes == "512x512")] | length' 2
+check "manifest type" "$(header content-type "$BASE/manifest.webmanifest")" "application/manifest+json"
+check "service worker" "$(status "$BASE/sw.js")" 200
+check "service worker type" "$(header content-type "$BASE/sw.js")" "text/javascript;"
+check "icon 192" "$(status "$BASE/icon-192.png")" 200
+check "icon 512" "$(status "$BASE/icon-512.png")" 200
+check "icon maskable" "$(status "$BASE/icon-maskable-512.png")" 200
+check "offline page" "$(status "$BASE/offline")" 200
+[[ $(curl -s -b "$jar" "$BASE/") == *'rel="manifest"'* ]] || fail "the shelf does not link the manifest"
+[[ $(curl -s -b "$jar" "$BASE/") == *'apple-mobile-web-app-capable'* ]] || fail "the shelf carries no ios standalone meta"
+
+section "merge"
+shelf=$(curl -s -b "$jar" "$BASE/")
+second=$(grep -o 'href="/read/[0-9a-f-]\{36\}"' <<< "$shelf" | sed 's#href="/read/##; s#"##' | sed -n 2p)
+[ -n "$second" ] || fail "the shelf shows fewer than two books"
+
+sleep 1
+status -X PUT -b "$jar" -H 'content-type: application/json' \
+    -d '{"percent":40,"chapter":"a","chapter_percent":10,"page":0,"status":"Reading"}' \
+    "$BASE/read/$second/progress" > /dev/null
+
+shelf=$(curl -s -b "$jar" "$BASE/")
+first=$(grep -o 'href="/read/[0-9a-f-]\{36\}"' <<< "$shelf" | sed 's#href="/read/##; s#"##' | sed -n 1p)
+[ "$first" = "$second" ] || fail "a book with fresh progress is not on top"
+
+status -X PUT -H 'content-type: application/json' \
+    -d '{"ReadingStates":[{"CurrentBookmark":{"ProgressPercent":15,"ContentSourceProgressPercent":5,"Location":{"Source":"a","Type":"KoboSpan","Value":""}},"StatusInfo":{"Status":"Reading"}}]}' \
+    "$(api "/kobo/v1/library/$second/state")" > /dev/null
+json "a later but shorter position loses" "$(cat "$LIB/.kobink-progress/$second.json")" '.percent == 40' true
+
+status -X PUT -H 'content-type: application/json' \
+    -d '{"ReadingStates":[{"CurrentBookmark":{"ProgressPercent":55,"ContentSourceProgressPercent":5,"Location":{"Source":"a","Type":"KoboSpan","Value":""}},"StatusInfo":{"Status":"Reading"}}]}' \
+    "$(api "/kobo/v1/library/$second/state")" > /dev/null
+json "a further position wins" "$(cat "$LIB/.kobink-progress/$second.json")" '.percent == 55' true
+
+status -X PUT -H 'content-type: application/json' \
+    -d '{"ReadingStates":[{"CurrentBookmark":{"ProgressPercent":0,"ContentSourceProgressPercent":0,"Location":{"Source":"a","Type":"KoboSpan","Value":""}},"StatusInfo":{"Status":"ReadyToRead"}}]}' \
+    "$(api "/kobo/v1/library/$second/state")" > /dev/null
+json "unread resets the position" "$(cat "$LIB/.kobink-progress/$second.json")" '.percent == 0' true
+json "unread resets the status" "$(cat "$LIB/.kobink-progress/$second.json")" '.status == "ReadyToRead"' true
+
+shelf=$(curl -s -b "$jar" "$BASE/")
+first=$(grep -o 'href="/read/[0-9a-f-]\{36\}"' <<< "$shelf" | sed 's#href="/read/##; s#"##' | sed -n 1p)
+[ "$first" != "$second" ] || fail "an unread book still sorts as recently read"
+
+status -X PUT -H 'content-type: application/json' \
+    -d '{"ReadingStates":[{"CurrentBookmark":{"ProgressPercent":12,"ContentSourceProgressPercent":5,"Location":{"Source":"a","Type":"KoboSpan","Value":""}},"StatusInfo":{"Status":"Finished"}}]}' \
+    "$(api "/kobo/v1/library/$second/state")" > /dev/null
+json "finished is 100%" "$(cat "$LIB/.kobink-progress/$second.json")" '.percent == 100' true
 
 section "batch"
 cp "$LIB/R.F. Kuang/Babel - Rebecca F. Kuang (2022).epub" "$WORK/one.epub"
@@ -363,9 +483,13 @@ delete_id=$(printf '%s' "$sync" | jq -r '[.[] | select(.NewEntitlement.BookMetad
 [ -n "$delete_id" ] && [ "$delete_id" != "null" ] || fail "cannot find the book to delete in the sync payload"
 
 touch -d '60 days ago' "$LIB/delete-me.epub"
+status -X PUT -b "$jar" -H 'content-type: application/json' \
+    -d '{"percent":12,"chapter":"OEBPS/chapter1.xhtml","chapter_percent":4,"page":0,"status":"Reading"}' \
+    "$BASE/read/$delete_id/progress" > /dev/null
 check "delete" "$(status -X DELETE "$(api "/kobo/v1/library/$delete_id")")" 204
 check "delete again" "$(status -X DELETE "$(api "/kobo/v1/library/$delete_id")")" 204
 [ ! -f "$LIB/delete-me.epub" ] || fail "the file is still in the library"
+[ ! -f "$LIB/.kobink-progress/$delete_id.json" ] || fail "the progress survived the delete"
 [ -f "$LIB/.kobink-trash/delete-me.epub" ] || fail "the file is not at the top of the trash"
 [ -z "$(find "$LIB/.kobink-trash" -mindepth 1 -type d)" ] || fail "the trash grew a dated subfolder"
 age=$(( $(date +%s) - $(date -r "$LIB/.kobink-trash/delete-me.epub" +%s) ))
@@ -425,6 +549,28 @@ body=$(curl -s -L -F "file=@$WORK/manga/cbz/Fire Punch v03.cbz" "http://127.0.0.
 [[ $body == *"no KCC"* ]] || fail "a cbz was accepted without kcc"
 kill "$off" 2>/dev/null || true
 say "page without kcc" "hint only"
+
+section "fixed layout"
+cp "$WORK/manga/fixed/Fire Punch v05.kepub.epub" "$LIB/"
+for _ in $(seq 1 20); do
+    fixed=$(curl -s "$(api /kobo/v1/library/sync)" | jq -r '[.[] | select(.NewEntitlement.BookMetadata.Title == "Fire Punch v05")][0].NewEntitlement.BookEntitlement.Id // empty')
+    [ -n "$fixed" ] && break
+    sleep 1
+done
+[ -n "$fixed" ] || fail "the fixed-layout book did not reach the library"
+
+manifest=$(curl -s -b "$jar" "$BASE/read/$fixed/manifest")
+json "fixed layout" "$manifest" '.layout' fixed
+json "fixed pages" "$manifest" '.pages | length' 3
+
+page=$(printf '%s' "$manifest" | jq -r '.pages[1].src')
+check "page image" "$(status -b "$jar" "$BASE/read/$fixed/res/$page")" 200
+check "page image type" "$(header content-type "$BASE/read/$fixed/res/$page" -b "$jar")" image/png
+
+check "page position" "$(status -X PUT -b "$jar" -H 'content-type: application/json' \
+    -d '{"percent":66.6,"chapter":"","chapter_percent":0,"page":2,"status":"Reading"}' \
+    "$BASE/read/$fixed/progress")" 204
+json "page position stored" "$(cat "$LIB/.kobink-progress/$fixed.json")" '.page == 2' true
 
 section "background"
 for _ in $(seq 1 20); do

@@ -82,10 +82,11 @@ fn prune_files(dir: &Path, days: u64) -> usize {
             continue;
         };
 
-        if metadata.is_file() && metadata.modified().is_ok_and(|modified| modified < cutoff) {
-            if fs::remove_file(entry.path()).is_ok() {
-                removed += 1;
-            }
+        if metadata.is_file()
+            && metadata.modified().is_ok_and(|modified| modified < cutoff)
+            && fs::remove_file(entry.path()).is_ok()
+        {
+            removed += 1;
         }
     }
 

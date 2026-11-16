@@ -300,3 +300,23 @@ article.card button:not(.outline):disabled {
     transition: none;
   }
 }
+
+.aside {
+  margin: 1.2rem 0 0;
+  padding-block-start: 1rem;
+  border-block-start: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: var(--text-8);
+  letter-spacing: 0.04em;
+}
+
+.aside a {
+  color: var(--muted-foreground);
+  text-decoration: none;
+  border-block-end: 1px solid color-mix(in srgb, var(--spine) 55%, transparent);
+  padding-block-end: 1px;
+}
+
+.aside a:hover {
+  color: var(--foreground);
+}

@@ -17,6 +17,100 @@ pub struct SyncEvent {
 pub struct Entitlement {
     pub BookEntitlement: BookEntitlement,
     pub BookMetadata: BookMetadata,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ReadingState: Option<ReadingState>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ReadingState {
+    pub Created: String,
+    pub CurrentBookmark: Bookmark,
+    pub EntitlementId: Uuid,
+    pub LastModified: String,
+    pub PriorityTimestamp: String,
+    pub Statistics: ReadingStatistics,
+    pub StatusInfo: StatusInfo,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Bookmark {
+    pub ContentSourceProgressPercent: f64,
+    pub LastModified: String,
+    pub Location: ReadingLocation,
+    pub ProgressPercent: f64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ReadingLocation {
+    pub Source: String,
+    #[serde(rename = "Type")]
+    pub kind: String,
+    #[serde(default)]
+    pub Value: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ReadingStatistics {
+    pub LastModified: String,
+    pub RemainingTimeMinutes: u32,
+    pub SpentReadingMinutes: u32,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct StatusInfo {
+    pub LastModified: String,
+    pub Status: String,
+    pub TimesStartedReading: u32,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ReadingStates {
+    pub ReadingStates: Vec<ReadingState>,
+}
+
+impl ReadingState {
+    pub fn new(book: Uuid, progress: &crate::library::progress::Progress) -> Self {
+        let modified = stamp_secs(progress.updated);
+        let status = if progress.status.is_empty() {
+            "Reading"
+        } else {
+            progress.status.as_str()
+        };
+
+        Self {
+            Created: modified.clone(),
+            CurrentBookmark: Bookmark {
+                ContentSourceProgressPercent: progress.chapter_percent,
+                LastModified: modified.clone(),
+                Location: ReadingLocation {
+                    Source: progress.chapter.clone(),
+                    kind: "KoboSpan".to_string(),
+                    Value: progress.span.clone(),
+                },
+                ProgressPercent: progress.percent,
+            },
+            EntitlementId: book,
+            LastModified: modified.clone(),
+            PriorityTimestamp: modified.clone(),
+            Statistics: ReadingStatistics {
+                LastModified: modified.clone(),
+                RemainingTimeMinutes: 0,
+                SpentReadingMinutes: 0,
+            },
+            StatusInfo: StatusInfo {
+                LastModified: modified,
+                Status: status.to_string(),
+                TimesStartedReading: progress.started.max(1),
+            },
+        }
+    }
+}
+
+fn stamp_secs(seconds: u64) -> String {
+    DateTime::<Utc>::from_timestamp(seconds as i64, 0)
+        .unwrap_or_else(Utc::now)
+        .format("%Y-%m-%dT%H:%M:%SZ")
+        .to_string()
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -120,9 +214,9 @@ fn stamp(time: Option<SystemTime>) -> String {
 }
 
 impl SyncEvent {
-    pub fn new(book: &Book) -> Self {
+    pub fn new(book: &Book, state: Option<ReadingState>) -> Self {
         Self {
-            NewEntitlement: Entitlement::new(book),
+            NewEntitlement: Entitlement::new(book).with_state(state),
         }
     }
 }
@@ -201,6 +295,12 @@ impl Entitlement {
                 Title: "".to_string(),
                 WorkId: uuid,
             },
+            ReadingState: None,
         }
+    }
+
+    pub fn with_state(mut self, state: Option<ReadingState>) -> Self {
+        self.ReadingState = state;
+        self
     }
 }
