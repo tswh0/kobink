@@ -597,12 +597,16 @@ fn open_resource(path: &Path, wanted: &str) -> Option<(Vec<u8>, String)> {
     let bytes = book_bytes(path)?;
     let mut doc = EpubDoc::from_reader(Cursor::new(&bytes[..])).ok()?;
 
-    let resource = doc
-        .resources
-        .values()
-        .find(|resource| resource.path.to_string_lossy().replace('\\', "/") == wanted)?;
+    let resource = doc.resources.values().find(|resource| {
+        let path = resource.path.to_string_lossy().replace('\\', "/");
+
+        path == wanted || decode(&path) == wanted
+    })?;
     let mime = resource.mime.clone();
-    let content = doc.get_resource_by_path(wanted)?;
+    let path = resource.path.clone();
+    let content = doc
+        .get_resource_by_path(&path)
+        .or_else(|| doc.get_resource_by_path(decode(&path.to_string_lossy())))?;
 
     Some((content, mime))
 }
