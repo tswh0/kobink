@@ -316,17 +316,17 @@ rm -f "$LIB/drop-test.kepub.epub"
 
 section "root"
 check "root offers the key" "$(status "$BASE/")" 200
-curl -s "$BASE/" | grep -q 'name="key"' || fail "root did not ask for the key"
+[[ $(curl -s "$BASE/") == *'name="key"'* ]] || fail "root did not ask for the key"
 [[ $(curl -s "$BASE/") == *'name="file"'* ]] && fail "root showed the upload without a key"
-curl -s "$BASE/?status=bad" | grep -q "does not match" || fail "a wrong key was not explained"
+[[ $(curl -s "$BASE/?status=bad") == *"does not match"* ]] || fail "a wrong key was not explained"
 check "drop needs a cookie" "$(status "$BASE/drop")" 303
 check "favicon" "$(status "$BASE/favicon.ico")" 200
 check "page style" "$(status "$BASE/page.css")" 200
 check "page script" "$(status "$BASE/app.js")" 200
 check "nosniff" "$(header x-content-type-options "$BASE/")" nosniff
 check "csp" "$(header_value content-security-policy "$BASE/" | cut -c1-21)" "default-src 'none'; s"
-curl -s "$BASE/app.js" | grep -q "XMLHttpRequest" || fail "app.js is not the upload script"
-curl -s "$BASE/" | grep -q '</style>' && fail "the login page still carries inline style"
+[[ $(curl -s "$BASE/app.js") == *"XMLHttpRequest"* ]] || fail "app.js is not the upload script"
+[[ $(curl -s "$BASE/") != *'</style>'* ]] || fail "the login page still carries inline style"
 check "favicon type" "$(header content-type "$BASE/favicon.ico")" image/x-icon
 check "reader style" "$(status "$BASE/reader.css")" 200
 check "reader script" "$(status "$BASE/reader.js")" 200
@@ -341,8 +341,8 @@ check "wrong key" "$(curl -s -o /dev/null -w '%{http_code}' -c "$jar" -d "key=wr
 [[ $(curl -s -b "$jar" "$BASE/") == *'name="file"'* ]] && fail "a wrong key unlocked the page"
 
 check "right key" "$(curl -s -o /dev/null -w '%{http_code}' -c "$jar" -d "key=$KEY" "$BASE/")" 303
-curl -s -b "$jar" "$BASE/drop" | grep -q 'name="file"' || fail "the right key did not unlock the drop page"
-curl -s -b "$jar" "$BASE/" | grep -q 'class="shelf-grid"' || fail "the right key did not unlock the shelf"
+[[ $(curl -s -b "$jar" "$BASE/drop") == *'name="file"'* ]] || fail "the right key did not unlock the drop page"
+[[ $(curl -s -b "$jar" "$BASE/") == *'class="shelf-grid"'* ]] || fail "the right key did not unlock the shelf"
 
 check "upload without a cookie" "$(status -X POST -F "file=@$WORK/drop-test.kepub.epub" "$BASE/upload")" 303
 
@@ -361,7 +361,7 @@ check "read redirects to the shelf" "$(status "$BASE/read")" 303
 shelf=$(curl -s -b "$jar" "$BASE/")
 [[ $shelf == *'class="shelf-grid"'* ]] || fail "the shelf does not render"
 [[ $shelf == *'/reader.css'* ]] || fail "the shelf does not ask for the reader stylesheet"
-curl -s "$BASE/reader.css" | grep -q '#page\[hidden\]' || fail "the reader css leaves the empty frame on top of the page plate"
+[[ $(curl -s "$BASE/reader.css") == *'#page[hidden]'* ]] || fail "the reader css leaves the empty frame on top of the page plate"
 book=$(sed -n 's#.*href="/read/\([0-9a-f-]\{36\}\)".*#\1#p' <<< "$shelf" | head -1)
 [ -n "$book" ] || fail "the shelf shows no book"
 
@@ -420,8 +420,8 @@ check "icon 192" "$(status "$BASE/icon-192.png")" 200
 check "icon 512" "$(status "$BASE/icon-512.png")" 200
 check "icon maskable" "$(status "$BASE/icon-maskable-512.png")" 200
 check "offline page" "$(status "$BASE/offline")" 200
-curl -s -b "$jar" "$BASE/" | grep -q 'rel="manifest"' || fail "the shelf does not link the manifest"
-curl -s -b "$jar" "$BASE/" | grep -q 'apple-mobile-web-app-capable' || fail "the shelf carries no ios standalone meta"
+[[ $(curl -s -b "$jar" "$BASE/") == *'rel="manifest"'* ]] || fail "the shelf does not link the manifest"
+[[ $(curl -s -b "$jar" "$BASE/") == *'apple-mobile-web-app-capable'* ]] || fail "the shelf carries no ios standalone meta"
 
 section "merge"
 shelf=$(curl -s -b "$jar" "$BASE/")
