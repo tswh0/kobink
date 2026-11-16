@@ -478,7 +478,7 @@
 }
 
 .fixed #plate {
-  background: #141414;
+  background: light-dark(var(--muted), #141414);
   cursor: pointer;
   user-select: none;
   -webkit-user-drag: none;
