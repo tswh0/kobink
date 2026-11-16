@@ -4,6 +4,17 @@ A Kobo can only download books from the Kobo store. Kobink runs on your own mach
 that address instead, and hands out the files you already have. The books stay in a folder.
 Nothing gets uploaded.
 
+## Screenshots
+
+| The library is the root | A book, read in the browser |
+| --- | --- |
+| ![The library](docs/shelf.png) | ![The reader](docs/reader.png) |
+| ![The drop page](docs/drop.png) | ![A fixed-layout page](docs/manga.png) |
+
+Installed to a phone's home screen, it opens full screen:
+
+![The reader on a phone](docs/reader-phone.png)
+
 ## How it works
 
 The reader asks its store what it owns. Kobink replies with the files from your folder, and for
