@@ -115,13 +115,13 @@ section "fixtures"
 python3 "$DIR/fixtures.py" "$LIB"
 python3 "$DIR/fixtures.py" --manga "$WORK/manga"
 
-FRESH=$(date +%s)
-mkdir -p "$LIB/.kobink-trash/1000" "$LIB/.kobink-trash/$FRESH"
+mkdir -p "$LIB/.kobink-trash/1000"
 printf old > "$COVERS/old-149x223.jpg"
 printf fresh > "$COVERS/fresh-149x223.jpg"
-printf gone > "$LIB/.kobink-trash/1000/gone.epub"
-printf keep > "$LIB/.kobink-trash/$FRESH/keep.epub"
-touch -d '60 days ago' "$COVERS/old-149x223.jpg" "$LIB/.kobink-trash/1000/gone.epub"
+printf gone > "$LIB/.kobink-trash/gone.epub"
+printf keep > "$LIB/.kobink-trash/keep.epub"
+printf legacy > "$LIB/.kobink-trash/1000/legacy.epub"
+touch -d '60 days ago' "$COVERS/old-149x223.jpg" "$LIB/.kobink-trash/gone.epub" "$LIB/.kobink-trash/1000/legacy.epub"
 
 cat > "$WORK/kcc-c2e" <<'STUB'
 #!/bin/sh
@@ -179,15 +179,16 @@ grep -q "loaded 5 books from .* (0 unreadable, 1 not synced: cbz 1)" "$LOG" ||
 
 section "retention"
 for _ in $(seq 1 20); do
-    grep -q "retention: removed" "$LOG" && break
+    grep -q "trash entr" "$LOG" && break
     sleep 1
 done
 grep -q "retention: covers after 30 days, trash after 30 days" "$LOG" ||
     fail "the sweep does not say what its policy is"
 [ ! -f "$COVERS/old-149x223.jpg" ] || fail "an expired cover survived the sweep"
-[ ! -d "$LIB/.kobink-trash/1000" ] || fail "an expired trash entry survived the sweep"
+[ ! -f "$LIB/.kobink-trash/gone.epub" ] || fail "an expired trash entry survived the sweep"
+[ ! -d "$LIB/.kobink-trash/1000" ] || fail "an expired trash directory survived the sweep"
 [ -f "$COVERS/fresh-149x223.jpg" ] || fail "the sweep removed a fresh cover"
-[ -d "$LIB/.kobink-trash/$FRESH" ] || fail "the sweep removed a fresh trash entry"
+[ -f "$LIB/.kobink-trash/keep.epub" ] || fail "the sweep removed a fresh trash entry"
 say "retention" "expired removed, fresh kept"
 
 section "auth"
@@ -361,10 +362,14 @@ json "books before delete" "$sync" 'length' 6
 delete_id=$(printf '%s' "$sync" | jq -r '[.[] | select(.NewEntitlement.BookMetadata.DownloadUrls[0].Url | endswith("delete-me.epub"))][0].NewEntitlement.BookEntitlement.Id')
 [ -n "$delete_id" ] && [ "$delete_id" != "null" ] || fail "cannot find the book to delete in the sync payload"
 
+touch -d '60 days ago' "$LIB/delete-me.epub"
 check "delete" "$(status -X DELETE "$(api "/kobo/v1/library/$delete_id")")" 204
 check "delete again" "$(status -X DELETE "$(api "/kobo/v1/library/$delete_id")")" 204
 [ ! -f "$LIB/delete-me.epub" ] || fail "the file is still in the library"
-find "$LIB/.kobink-trash" -name "delete-me.epub" | grep -q . || fail "the file is not in the trash"
+[ -f "$LIB/.kobink-trash/delete-me.epub" ] || fail "the file is not at the top of the trash"
+[ -z "$(find "$LIB/.kobink-trash" -mindepth 1 -type d)" ] || fail "the trash grew a dated subfolder"
+age=$(( $(date +%s) - $(date -r "$LIB/.kobink-trash/delete-me.epub" +%s) ))
+[ "$age" -lt 60 ] || fail "the trashed file kept the age it had in the library"
 json "books after delete" "$(curl -s "$(api /kobo/v1/library/sync)")" 'length' 5
 check "delete unknown" "$(status -X DELETE "$(api "/kobo/v1/library/00000000-0000-4000-8000-000000000000")")" 204
 

@@ -109,23 +109,38 @@ fn prune_trash(dir: &Path, days: u64) -> usize {
     let mut removed = 0;
 
     for entry in entries.flatten() {
-        if !entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+        let Ok(kind) = entry.file_type() else {
             continue;
-        }
-
-        let expired = match entry.file_name().to_string_lossy().parse::<u64>() {
-            Ok(stamp) => stamp < epoch,
-            Err(_) => entry
-                .metadata()
-                .ok()
-                .and_then(|metadata| metadata.modified().ok())
-                .is_some_and(|modified| modified < cutoff),
         };
 
-        if expired && fs::remove_dir_all(entry.path()).is_ok() {
+        // trash from before the flat layout is a directory per retire, named by its epoch
+        let expired = if kind.is_dir() {
+            match entry.file_name().to_string_lossy().parse::<u64>() {
+                Ok(stamp) => stamp < epoch,
+                Err(_) => modified_before(&entry, cutoff),
+            }
+        } else {
+            modified_before(&entry, cutoff)
+        };
+
+        let gone = if kind.is_dir() {
+            fs::remove_dir_all(entry.path())
+        } else {
+            fs::remove_file(entry.path())
+        };
+
+        if expired && gone.is_ok() {
             removed += 1;
         }
     }
 
     removed
+}
+
+fn modified_before(entry: &fs::DirEntry, cutoff: SystemTime) -> bool {
+    entry
+        .metadata()
+        .ok()
+        .and_then(|metadata| metadata.modified().ok())
+        .is_some_and(|modified| modified < cutoff)
 }
