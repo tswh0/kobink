@@ -21,7 +21,7 @@ use uuid::Uuid;
 
 use crate::{
     auth::{api_key, public_base},
-    library::models::{refresh, LibraryState},
+    library::models::{refresh, unique, LibraryState},
 };
 
 const PAGE: &str = include_str!("drop.html");
@@ -217,7 +217,7 @@ async fn store(library_path: &str, work: &Path, part: Part, profile: &str) -> &'
 
     match classify(&name) {
         Some(Kind::Book) => {
-            let target = unique(library_path, &name);
+            let target = unique(Path::new(library_path), &name);
 
             match tokio::fs::copy(&part.path, &target).await {
                 Ok(_) => {
@@ -276,7 +276,7 @@ async fn convert(
         };
     }
 
-    let target = unique(library_path, &format!("{title}{suffix}"));
+    let target = unique(Path::new(library_path), &format!("{title}{suffix}"));
 
     match tokio::fs::copy(&output, &target).await {
         Ok(bytes) => {
@@ -490,35 +490,6 @@ fn series(title: &str) -> String {
     }
 
     title.to_string()
-}
-
-fn unique(library_path: &str, name: &str) -> PathBuf {
-    let root = Path::new(library_path);
-    let candidate = root.join(name);
-
-    if !candidate.exists() {
-        return candidate;
-    }
-
-    let path = Path::new(name);
-    let stem = path
-        .file_stem()
-        .map(|stem| stem.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    let extension = path
-        .extension()
-        .map(|extension| extension.to_string_lossy().into_owned())
-        .unwrap_or_default();
-
-    for number in 2..1000 {
-        let candidate = root.join(format!("{stem} ({number}).{extension}"));
-
-        if !candidate.exists() {
-            return candidate;
-        }
-    }
-
-    candidate
 }
 
 fn controls() -> String {

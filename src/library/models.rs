@@ -421,24 +421,53 @@ pub async fn retire(library_path: &str, path: &Path) -> std::io::Result<Option<P
         return Ok(None);
     }
 
-    let root = Path::new(library_path);
-    let relative = path.strip_prefix(root).unwrap_or(path);
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_secs())
-        .unwrap_or_default();
-    let target = root.join(TRASH).join(stamp.to_string()).join(relative);
+    let trash = Path::new(library_path).join(TRASH);
+    tokio::fs::create_dir_all(&trash).await?;
 
-    if let Some(parent) = target.parent() {
-        tokio::fs::create_dir_all(parent).await?;
-    }
+    let name = path.file_name().unwrap_or_default().to_string_lossy();
+    let target = unique(&trash, &name);
 
     match tokio::fs::rename(path, &target).await {
-        Ok(()) => Ok(Some(target)),
+        Ok(()) => {}
         Err(_) => {
             tokio::fs::copy(path, &target).await?;
             tokio::fs::remove_file(path).await?;
-            Ok(Some(target))
         }
     }
+
+    // a rename keeps the mtime the book had in the library, but TRASH_DAYS counts from the delete
+    tokio::fs::File::open(&target)
+        .await?
+        .set_modified(SystemTime::now())
+        .await?;
+
+    Ok(Some(target))
+}
+
+pub fn unique(dir: &Path, name: &str) -> PathBuf {
+    let candidate = dir.join(name);
+
+    if !candidate.exists() {
+        return candidate;
+    }
+
+    let path = Path::new(name);
+    let stem = path
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let extension = path
+        .extension()
+        .map(|extension| extension.to_string_lossy().into_owned())
+        .unwrap_or_default();
+
+    for number in 2..1000 {
+        let candidate = dir.join(format!("{stem} ({number}).{extension}"));
+
+        if !candidate.exists() {
+            return candidate;
+        }
+    }
+
+    candidate
 }
