@@ -327,6 +327,8 @@ check "csp" "$(header_value content-security-policy "$BASE/" | cut -c1-21)" "def
 curl -s "$BASE/app.js" | grep -q "XMLHttpRequest" || fail "app.js is not the upload script"
 curl -s "$BASE/" | grep -q '</style>' && fail "the login page still carries inline style"
 check "favicon type" "$(header content-type "$BASE/favicon.ico")" image/x-icon
+check "reader style" "$(status "$BASE/reader.css")" 200
+check "reader script" "$(status "$BASE/reader.js")" 200
 
 jar=$WORK/jar.txt
 check "wrong key" "$(curl -s -o /dev/null -w '%{http_code}' -c "$jar" -d "key=wrong" "$BASE/")" 303
@@ -346,6 +348,7 @@ section "read"
 check "shelf without a cookie" "$(status "$BASE/read")" 303
 shelf=$(curl -s -b "$jar" "$BASE/read")
 [[ $shelf == *'class="shelf-grid"'* ]] || fail "the shelf does not render"
+[[ $shelf == *'/reader.css'* ]] || fail "the shelf does not ask for the reader stylesheet"
 book=$(sed -n 's#.*href="/read/\([0-9a-f-]\{36\}\)".*#\1#p' <<< "$shelf" | head -1)
 [ -n "$book" ] || fail "the shelf shows no book"
 

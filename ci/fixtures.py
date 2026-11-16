@@ -51,7 +51,7 @@ def make_epub(path, title, author, layout="reflowable", series=None, number=None
   </metadata>
   <manifest>
     <item id="c1" href="chapter1.xhtml" media-type="application/xhtml+xml"/>
-    <item id="cover-img" href="cover.png" media-type="image/png" properties="cover-image"/>
+    <item id="cover-img" href="cover.png" media-type="image/png"/>
   </manifest>
   <spine><itemref idref="c1"/></spine>
 </package>"""
