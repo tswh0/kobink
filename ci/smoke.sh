@@ -366,6 +366,10 @@ book=$(sed -n 's#.*href="/read/\([0-9a-f-]\{36\}\)".*#\1#p' <<< "$shelf" | head 
 [ -n "$book" ] || fail "the shelf shows no book"
 
 check "reader page" "$(status -b "$jar" "$BASE/read/$book")" 200
+check "shelf gzip" "$(header_value content-encoding "$BASE/" -b "$jar" -H 'Accept-Encoding: gzip')" gzip
+check "shelf is never cached" "$(header_value cache-control "$BASE/" -b "$jar")" no-store
+check "versioned asset is immutable" \
+    "$(header_value cache-control "$BASE/reader.css?v=1" | grep -c immutable)" 1
 manifest=$(curl -s -b "$jar" "$BASE/read/$book/manifest")
 json "manifest title" "$manifest" '.title | length > 0' true
 json "manifest chapters" "$manifest" '.chapters | length > 0' true

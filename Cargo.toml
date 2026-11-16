@@ -23,6 +23,7 @@ base64 = "0.23"
 uuid = { version = "1.6.1", features = ["v4", "fast-rng", "serde"] }
 walkdir = "2.4.0"
 tokio-util = { version = "0.7", features = ["io"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
 flate2 = "1"
 epub = "2.1.1"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }

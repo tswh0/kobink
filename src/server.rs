@@ -51,7 +51,7 @@ pub async fn start_server() {
         .nest(&format!("/{api_key}/download"), create_download_router())
         .merge(kobo::covers::create_cover_router(&format!("/{api_key}")))
         .merge(drop::create_drop_router(&format!("/{api_key}")))
-        .merge(read::create_read_router())
+        .merge(read::create_read_router().layer(CompressionLayer::new()))
         .fallback(not_found)
         .layer(middleware::from_fn(security_headers))
         .layer(middleware::from_fn(logging::log_request_response))

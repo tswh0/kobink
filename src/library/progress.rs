@@ -2,7 +2,7 @@ use std::{
     collections::{HashMap, HashSet},
     fs,
     path::{Path, PathBuf},
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{atomic::{AtomicU64, Ordering}, Arc, Mutex},
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -11,6 +11,13 @@ use serde::{Deserialize, Serialize};
 pub const DIR: &str = ".kobink-progress";
 
 static GENERATION: AtomicU64 = AtomicU64::new(0);
+struct Snapshot {
+    generation: u64,
+    dir: PathBuf,
+    map: Arc<HashMap<String, Progress>>,
+}
+
+static SNAPSHOT: Mutex<Option<Snapshot>> = Mutex::new(None);
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Progress {
@@ -42,7 +49,40 @@ pub fn load(library_path: &str, id: &str) -> Option<Progress> {
 }
 
 pub fn all(library_path: &str) -> HashMap<String, Progress> {
-    let Ok(entries) = fs::read_dir(dir(library_path)) else {
+    (*snapshot(library_path)).clone()
+}
+
+pub fn snapshot(library_path: &str) -> Arc<HashMap<String, Progress>> {
+    let dir = dir(library_path);
+    let generation = GENERATION.load(Ordering::Relaxed);
+
+    {
+        let cache = SNAPSHOT
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+        if let Some(snapshot) = cache.as_ref() {
+            if snapshot.generation == generation && snapshot.dir == dir {
+                return snapshot.map.clone();
+            }
+        }
+    }
+
+    let map = Arc::new(read_all(&dir));
+    let mut cache = SNAPSHOT
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    *cache = Some(Snapshot {
+        generation,
+        dir,
+        map: map.clone(),
+    });
+
+    map
+}
+
+fn read_all(dir: &Path) -> HashMap<String, Progress> {
+    let Ok(entries) = fs::read_dir(dir) else {
         return HashMap::new();
     };
 
@@ -130,7 +170,9 @@ fn settle(mut progress: Progress) -> Progress {
 }
 
 pub fn remove(library_path: &str, id: &str) {
-    let _ = fs::remove_file(dir(library_path).join(format!("{id}.json")));
+    if fs::remove_file(dir(library_path).join(format!("{id}.json"))).is_ok() {
+        bump(now());
+    }
 }
 
 pub fn prune(library_path: &str, keep: &HashSet<String>) -> usize {
@@ -149,6 +191,10 @@ pub fn prune(library_path: &str, keep: &HashSet<String>) -> usize {
         if !keep.contains(id) && fs::remove_file(entry.path()).is_ok() {
             removed += 1;
         }
+    }
+
+    if removed > 0 {
+        bump(now());
     }
 
     removed
@@ -180,4 +226,8 @@ fn bump(updated: u64) {
             Err(actual) => current = actual,
         }
     }
+
+    *SNAPSHOT
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
 }

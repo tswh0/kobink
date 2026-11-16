@@ -1,7 +1,7 @@
 use std::{
     cmp::Ordering,
     collections::HashMap,
-    io::Cursor,
+    io::{Cursor, Write},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
@@ -9,12 +9,13 @@ use std::{
 use axum::{
     body::Body,
     extract::{Path as Route, Query, State},
-    http::{header, HeaderMap, HeaderValue, StatusCode},
+    http::{header, HeaderMap, HeaderValue, StatusCode, Uri},
     response::{Html, IntoResponse, Redirect, Response},
     routing::{get, put},
     Json, Router,
 };
 use epub::doc::{EpubDoc, NavPoint};
+use flate2::{write::GzEncoder, Compression};
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
@@ -41,9 +42,11 @@ const READER: &str = include_str!("reader.html");
 const STYLE: &str = include_str!("reader.css");
 const SCRIPT: &str = include_str!("reader.js");
 
+const THUMB: (u32, u32) = (149, 223);
 const COVER: (u32, u32) = (355, 530);
 const MAX_CACHED_BOOKS: usize = 3;
 const MAX_CACHED_BYTES: u64 = 96 * 1024 * 1024;
+const MAX_CACHED_PARSES: usize = 3;
 
 struct CachedBook {
     path: PathBuf,
@@ -51,7 +54,29 @@ struct CachedBook {
     bytes: Arc<Vec<u8>>,
 }
 
+struct CachedStructure {
+    path: PathBuf,
+    size: u64,
+    body: Arc<Structure>,
+}
+
+struct CachedIndex {
+    path: PathBuf,
+    size: u64,
+    resources: Arc<HashMap<String, (String, String)>>,
+}
+
+struct ShelfPage {
+    library: u64,
+    progress: u64,
+    html: Arc<Vec<u8>>,
+    gzip: Arc<Vec<u8>>,
+}
+
 static BOOKS: Mutex<Vec<CachedBook>> = Mutex::new(Vec::new());
+static SHELF_PAGES: Mutex<Option<ShelfPage>> = Mutex::new(None);
+static STRUCTURES: Mutex<Vec<CachedStructure>> = Mutex::new(Vec::new());
+static INDEXES: Mutex<Vec<CachedIndex>> = Mutex::new(Vec::new());
 
 pub fn create_read_router() -> Router<Arc<Mutex<LibraryState>>> {
     Router::new()
@@ -89,7 +114,7 @@ struct Chapter {
     label: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Clone)]
 struct Page {
     href: String,
     src: String,
@@ -135,6 +160,13 @@ async fn shelf(
         (state.path.clone(), state.books.clone())
     };
 
+    let library_version = crate::library::models::version(&books);
+    let generation = progress::generation();
+
+    if let Some(page) = cached_shelf(library_version, generation) {
+        return page.into_response(headers);
+    }
+
     let states = tokio::task::spawn_blocking(move || progress::all(&library_path))
         .await
         .unwrap_or_default();
@@ -171,15 +203,17 @@ async fn shelf(
 
     let mut markup = String::new();
 
-    for book in order {
+    for book in &order {
         let state = states.get(&book.id.to_string());
         let percent = state.map(|state| state.percent).unwrap_or_default();
+        let key = api_key();
         let cover = format!(
-            "/{}/{}/{}/{}/false/image.jpg",
-            api_key(),
-            book.id,
-            COVER.0,
-            COVER.1
+            "/{key}/{}/{}/{}/false/image.jpg",
+            book.id, THUMB.0, THUMB.1
+        );
+        let crisp = format!(
+            "/{key}/{}/{}/{}/false/image.jpg",
+            book.id, COVER.0, COVER.1
         );
 
         let meter = if percent > 0.0 {
@@ -197,10 +231,11 @@ async fn shelf(
         };
 
         markup.push_str(&format!(
-            r#"<li><a class="book" href="/read/{id}"><span class="cover" data-initials="{initials}"><img src="{cover}" alt="" loading="lazy"></span><span class="name">{title}</span><span class="by">{author}</span><span class="read-line">{meter}</span></a></li>"#,
+            r#"<li><a class="book" href="/read/{id}"><span class="cover" data-initials="{initials}"><img src="{cover}" srcset="{cover} 1x, {crisp} 2x" alt="" loading="lazy" decoding="async"></span><span class="name">{title}</span><span class="by">{author}</span><span class="read-line">{meter}</span></a></li>"#,
             id = book.id,
             initials = escape(&initials(&book.title)),
             cover = cover,
+            crisp = crisp,
             title = escape(&book.title),
             author = escape(&book.author),
             meter = meter,
@@ -214,7 +249,85 @@ async fn shelf(
         format!("{} books", books.len())
     };
 
-    Html(SHELF.replace("{{COUNT}}", &lede).replace("{{BOOKS}}", &markup)).into_response()
+    let html = Arc::new(
+        SHELF
+            .replace("{{COUNT}}", &lede)
+            .replace("{{BOOKS}}", &markup)
+            .into_bytes(),
+    );
+    let gzip = Arc::new(deflate(&html));
+    let page = ShelfPage {
+        library: library_version,
+        progress: generation,
+        html,
+        gzip,
+    };
+
+    *SHELF_PAGES
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(ShelfPage {
+        library: page.library,
+        progress: page.progress,
+        html: page.html.clone(),
+        gzip: page.gzip.clone(),
+    });
+
+    page.into_response(headers)
+}
+
+fn cached_shelf(library: u64, progress: u64) -> Option<ShelfPage> {
+    let cache = SHELF_PAGES
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let page = cache.as_ref()?;
+
+    if page.library != library || page.progress != progress {
+        return None;
+    }
+
+    Some(ShelfPage {
+        library: page.library,
+        progress: page.progress,
+        html: page.html.clone(),
+        gzip: page.gzip.clone(),
+    })
+}
+
+fn deflate(body: &[u8]) -> Vec<u8> {
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+    let _ = encoder.write_all(body);
+
+    encoder.finish().unwrap_or_default()
+}
+
+impl ShelfPage {
+    fn into_response(self, headers: HeaderMap) -> Response {
+        let accepted = headers
+            .get(header::ACCEPT_ENCODING)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| value.contains("gzip"));
+
+        let body = if accepted {
+            Body::from((*self.gzip).clone())
+        } else {
+            Body::from((*self.html).clone())
+        };
+        let mut response = Response::new(body);
+        let head = response.headers_mut();
+
+        head.insert(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("text/html; charset=utf-8"),
+        );
+        head.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+        head.insert(header::VARY, HeaderValue::from_static("Accept-Encoding"));
+
+        if accepted {
+            head.insert(header::CONTENT_ENCODING, HeaderValue::from_static("gzip"));
+        }
+
+        response
+    }
 }
 
 async fn reader(
@@ -269,7 +382,7 @@ async fn manifest(
 
     let path = book.path.clone();
     let fixed = book.fixed_layout;
-    let structure = match tokio::task::spawn_blocking(move || structure_of(&path, fixed)).await {
+    let structure = match tokio::task::spawn_blocking(move || structure_for(&path, fixed)).await {
         Ok(Some(structure)) => structure,
         Ok(None) => return StatusCode::NOT_FOUND.into_response(),
         Err(error) => {
@@ -284,15 +397,20 @@ async fn manifest(
         .await
         .unwrap_or_default();
 
-    Json(Manifest {
+    let mut response = Json(Manifest {
         title: book.title.clone(),
         author: book.author.clone(),
         layout: if fixed { "fixed" } else { "flow" },
-        chapters: structure.chapters,
-        pages: structure.pages,
+        chapters: structure.chapters.clone(),
+        pages: structure.pages.clone(),
         progress: view,
     })
-    .into_response()
+    .into_response();
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+
+    response
 }
 
 async fn write_progress(
@@ -407,23 +525,27 @@ async fn resource(
 const OCTET: &str = "application/octet-stream";
 
 async fn offline() -> Response {
-    asset(OFFLINE.as_bytes(), "text/html; charset=utf-8")
+    asset(OFFLINE.as_bytes(), "text/html; charset=utf-8", false)
 }
 
 async fn manifest_json() -> Response {
-    asset(MANIFEST.as_bytes(), "application/manifest+json")
+    asset(MANIFEST.as_bytes(), "application/manifest+json", false)
 }
 
 async fn worker() -> Response {
-    asset(WORKER.as_bytes(), "text/javascript; charset=utf-8")
+    asset(WORKER.as_bytes(), "text/javascript; charset=utf-8", false)
 }
 
 async fn pwa() -> Response {
-    asset(PWA.as_bytes(), "text/javascript; charset=utf-8")
+    asset(PWA.as_bytes(), "text/javascript; charset=utf-8", false)
 }
 
-async fn shelf_script() -> Response {
-    asset(SHELF_JS.as_bytes(), "text/javascript; charset=utf-8")
+async fn shelf_script(uri: Uri) -> Response {
+    asset(
+        SHELF_JS.as_bytes(),
+        "text/javascript; charset=utf-8",
+        versioned(&uri),
+    )
 }
 
 async fn icon_192() -> Response {
@@ -450,19 +572,35 @@ fn icon(bytes: &'static [u8]) -> Response {
     response
 }
 
-async fn style() -> Response {
-    asset(STYLE.as_bytes(), "text/css; charset=utf-8")
+async fn style(uri: Uri) -> Response {
+    asset(STYLE.as_bytes(), "text/css; charset=utf-8", versioned(&uri))
 }
 
-async fn script() -> Response {
-    asset(SCRIPT.as_bytes(), "text/javascript; charset=utf-8")
+async fn script(uri: Uri) -> Response {
+    asset(
+        SCRIPT.as_bytes(),
+        "text/javascript; charset=utf-8",
+        versioned(&uri),
+    )
 }
 
-fn asset(bytes: &'static [u8], mime: &'static str) -> Response {
+fn versioned(uri: &Uri) -> bool {
+    uri.query()
+        .is_some_and(|query| query.split('&').any(|pair| pair.starts_with("v=")))
+}
+
+fn asset(bytes: &'static [u8], mime: &'static str, immutable: bool) -> Response {
     let mut response = Response::new(Body::from(bytes));
     let headers = response.headers_mut();
     headers.insert(header::CONTENT_TYPE, HeaderValue::from_static(mime));
-    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+    headers.insert(
+        header::CACHE_CONTROL,
+        if immutable {
+            HeaderValue::from_static("public, max-age=31536000, immutable")
+        } else {
+            HeaderValue::from_static("no-cache")
+        },
+    );
 
     response
 }
@@ -470,6 +608,44 @@ fn asset(bytes: &'static [u8], mime: &'static str) -> Response {
 struct Structure {
     chapters: Vec<Chapter>,
     pages: Vec<Page>,
+}
+
+fn structure_for(path: &Path, fixed: bool) -> Option<Arc<Structure>> {
+    let size = std::fs::metadata(path).ok()?.len();
+
+    {
+        let mut cache = STRUCTURES
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+        if let Some(at) = cache
+            .iter()
+            .position(|cached| cached.path == path && cached.size == size)
+        {
+            let entry = cache.remove(at);
+            let body = entry.body.clone();
+            cache.push(entry);
+
+            return Some(body);
+        }
+    }
+
+    let body = Arc::new(structure_of(path, fixed)?);
+    let mut cache = STRUCTURES
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+    while cache.len() >= MAX_CACHED_PARSES {
+        cache.remove(0);
+    }
+
+    cache.push(CachedStructure {
+        path: path.to_path_buf(),
+        size,
+        body: body.clone(),
+    });
+
+    Some(body)
 }
 
 fn structure_of(path: &Path, fixed: bool) -> Option<Structure> {
@@ -674,8 +850,103 @@ fn book_bytes(path: &Path) -> Option<Arc<Vec<u8>>> {
 }
 
 fn open_resource(path: &Path, wanted: &str) -> Option<(Vec<u8>, String)> {
+    let resources = resources_for(path)?;
+    let (name, mime) = resources.get(wanted)?;
+
+    if let Some(content) = read_entry(path, name) {
+        return Some((content, mime.clone()));
+    }
+
     let bytes = book_bytes(path)?;
-    let mut doc = EpubDoc::from_reader(Cursor::new(&bytes[..])).ok()?;
+
+    read_with_epub(&bytes, wanted)
+}
+
+fn resources_for(path: &Path) -> Option<Arc<HashMap<String, (String, String)>>> {
+    let size = std::fs::metadata(path).ok()?.len();
+
+    {
+        let mut cache = INDEXES
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+        if let Some(at) = cache
+            .iter()
+            .position(|cached| cached.path == path && cached.size == size)
+        {
+            let entry = cache.remove(at);
+            let resources = entry.resources.clone();
+            cache.push(entry);
+
+            return Some(resources);
+        }
+    }
+
+    let doc = EpubDoc::new(path).ok()?;
+    let mut resources: HashMap<String, (String, String)> = HashMap::new();
+
+    for resource in doc.resources.values() {
+        let name = resource.path.to_string_lossy().replace('\\', "/");
+        let entry = (
+            resource.path.to_string_lossy().into_owned(),
+            resource.mime.clone(),
+        );
+        let decoded = decode(&name);
+
+        if decoded != name {
+            resources.insert(decoded, entry.clone());
+        }
+
+        resources.insert(name, entry);
+    }
+
+    let resources = Arc::new(resources);
+    let mut cache = INDEXES
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+    while cache.len() >= MAX_CACHED_PARSES {
+        cache.remove(0);
+    }
+
+    cache.push(CachedIndex {
+        path: path.to_path_buf(),
+        size,
+        resources: resources.clone(),
+    });
+
+    Some(resources)
+}
+
+fn read_entry(path: &Path, name: &str) -> Option<Vec<u8>> {
+    let size = std::fs::metadata(path).ok()?.len();
+
+    if size > MAX_CACHED_BYTES {
+        let mut archive = zip::ZipArchive::new(std::fs::File::open(path).ok()?).ok()?;
+
+        return content_of(&mut archive, name);
+    }
+
+    let bytes = book_bytes(path)?;
+    let mut archive = zip::ZipArchive::new(Cursor::new(&bytes[..])).ok()?;
+
+    content_of(&mut archive, name)
+}
+
+fn content_of<R: std::io::Read + std::io::Seek>(
+    archive: &mut zip::ZipArchive<R>,
+    name: &str,
+) -> Option<Vec<u8>> {
+    let mut file = archive.by_name(name).ok()?;
+    let mut content = Vec::with_capacity(file.size() as usize);
+
+    std::io::Read::read_to_end(&mut file, &mut content).ok()?;
+
+    Some(content)
+}
+
+fn read_with_epub(bytes: &[u8], wanted: &str) -> Option<(Vec<u8>, String)> {
+    let mut doc = EpubDoc::from_reader(Cursor::new(bytes)).ok()?;
 
     let resource = doc.resources.values().find(|resource| {
         let path = resource.path.to_string_lossy().replace('\\', "/");
