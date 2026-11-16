@@ -296,7 +296,7 @@ say "image template" "$template"
 
 section "drop"
 check "drop page" "$(status "$(api /drop)")" 200
-check "drop without key" "$(status "$BASE/drop")" 404
+check "drop without a cookie" "$(status "$BASE/drop")" 303
 check "stylesheet" "$(status "$BASE/style.css")" 200
 check "multiple files" "$(curl -s "$(api /drop)" | grep -c 'name="file" accept="[^"]*" multiple')" 1
 
@@ -319,6 +319,7 @@ check "root offers the key" "$(status "$BASE/")" 200
 curl -s "$BASE/" | grep -q 'name="key"' || fail "root did not ask for the key"
 [[ $(curl -s "$BASE/") == *'name="file"'* ]] && fail "root showed the upload without a key"
 curl -s "$BASE/?status=bad" | grep -q "does not match" || fail "a wrong key was not explained"
+check "drop needs a cookie" "$(status "$BASE/drop")" 303
 check "favicon" "$(status "$BASE/favicon.ico")" 200
 check "page style" "$(status "$BASE/page.css")" 200
 check "page script" "$(status "$BASE/app.js")" 200
@@ -340,7 +341,8 @@ check "wrong key" "$(curl -s -o /dev/null -w '%{http_code}' -c "$jar" -d "key=wr
 [[ $(curl -s -b "$jar" "$BASE/") == *'name="file"'* ]] && fail "a wrong key unlocked the page"
 
 check "right key" "$(curl -s -o /dev/null -w '%{http_code}' -c "$jar" -d "key=$KEY" "$BASE/")" 303
-curl -s -b "$jar" "$BASE/" | grep -q 'name="file"' || fail "the right key did not unlock the page"
+curl -s -b "$jar" "$BASE/drop" | grep -q 'name="file"' || fail "the right key did not unlock the drop page"
+curl -s -b "$jar" "$BASE/" | grep -q 'class="shelf-grid"' || fail "the right key did not unlock the shelf"
 
 check "upload without a cookie" "$(status -X POST -F "file=@$WORK/drop-test.kepub.epub" "$BASE/upload")" 303
 
@@ -350,14 +352,15 @@ json "books after root upload" "$(curl -s "$(api /kobo/v1/library/sync)")" 'leng
 rm -f "$LIB/drop-test.kepub.epub"
 
 section "read"
-check "shelf without a cookie" "$(status "$BASE/read")" 303
-shelf=$(curl -s -b "$jar" "$BASE/read")
+check "read redirects to the shelf" "$(status "$BASE/read")" 303
+shelf=$(curl -s -b "$jar" "$BASE/")
 [[ $shelf == *'class="shelf-grid"'* ]] || fail "the shelf does not render"
 [[ $shelf == *'/reader.css'* ]] || fail "the shelf does not ask for the reader stylesheet"
 curl -s "$BASE/reader.css" | grep -q '#page\[hidden\]' || fail "the reader css leaves the empty frame on top of the page plate"
 book=$(sed -n 's#.*href="/read/\([0-9a-f-]\{36\}\)".*#\1#p' <<< "$shelf" | head -1)
 [ -n "$book" ] || fail "the shelf shows no book"
 
+check "reader page" "$(status -b "$jar" "$BASE/read/$book")" 200
 manifest=$(curl -s -b "$jar" "$BASE/read/$book/manifest")
 json "manifest title" "$manifest" '.title | length > 0' true
 json "manifest chapters" "$manifest" '.chapters | length > 0' true
@@ -395,6 +398,21 @@ events=$(curl -s -H "x-kobo-synctoken: $token" "$(api /kobo/v1/library/sync)" | 
 say "sync after a turn" "$events"
 json "state in the sync payload" "$(curl -s "$(api /kobo/v1/library/sync)")" \
     '[.[] | select(.NewEntitlement.BookEntitlement.Id == "'"$book"'") | .NewEntitlement.ReadingState.CurrentBookmark.ProgressPercent][0]' 71.5
+
+section "installable"
+manifest=$(curl -s "$BASE/manifest.webmanifest")
+json "manifest start" "$manifest" '.start_url' "/"
+json "manifest display" "$manifest" '.display' "standalone"
+json "manifest icons" "$manifest" '[.icons[] | select(.sizes == "512x512")] | length' 2
+check "manifest type" "$(header content-type "$BASE/manifest.webmanifest")" "application/manifest+json"
+check "service worker" "$(status "$BASE/sw.js")" 200
+check "service worker type" "$(header content-type "$BASE/sw.js")" "text/javascript;"
+check "icon 192" "$(status "$BASE/icon-192.png")" 200
+check "icon 512" "$(status "$BASE/icon-512.png")" 200
+check "icon maskable" "$(status "$BASE/icon-maskable-512.png")" 200
+check "offline page" "$(status "$BASE/offline")" 200
+curl -s -b "$jar" "$BASE/" | grep -q 'rel="manifest"' || fail "the shelf does not link the manifest"
+curl -s -b "$jar" "$BASE/" | grep -q 'apple-mobile-web-app-capable' || fail "the shelf carries no ios standalone meta"
 
 section "batch"
 cp "$LIB/R.F. Kuang/Babel - Rebecca F. Kuang (2022).epub" "$WORK/one.epub"

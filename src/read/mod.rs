@@ -7,7 +7,7 @@ use std::{
 
 use axum::{
     body::Body,
-    extract::{Path as Route, State},
+    extract::{Path as Route, Query, State},
     http::{header, HeaderMap, HeaderValue, StatusCode},
     response::{Html, IntoResponse, Redirect, Response},
     routing::get,
@@ -19,7 +19,7 @@ use tracing::warn;
 
 use crate::{
     auth::api_key,
-    drop::authorised,
+    drop::{authorised, Status},
     library::{
         epub::{decode, first_image, resolve},
         models::{Book, LibraryState},
@@ -28,6 +28,13 @@ use crate::{
 };
 
 const SHELF: &str = include_str!("shelf.html");
+const OFFLINE: &str = include_str!("offline.html");
+const MANIFEST: &str = include_str!("manifest.webmanifest");
+const WORKER: &str = include_str!("sw.js");
+const PWA: &str = include_str!("pwa.js");
+const ICON_192: &[u8] = include_bytes!("icon-192.png");
+const ICON_512: &[u8] = include_bytes!("icon-512.png");
+const ICON_MASKABLE: &[u8] = include_bytes!("icon-maskable-512.png");
 const READER: &str = include_str!("reader.html");
 const STYLE: &str = include_str!("reader.css");
 const SCRIPT: &str = include_str!("reader.js");
@@ -40,7 +47,15 @@ static BOOKS: Mutex<Vec<(PathBuf, u64, Arc<Vec<u8>>)>> = Mutex::new(Vec::new());
 
 pub fn create_read_router() -> Router<Arc<Mutex<LibraryState>>> {
     Router::new()
-        .route("/read", get(shelf))
+        .route("/", get(shelf))
+        .route("/read", get(move || async { Redirect::to("/") }))
+        .route("/offline", get(offline))
+        .route("/manifest.webmanifest", get(manifest_json))
+        .route("/sw.js", get(worker))
+        .route("/pwa.js", get(pwa))
+        .route("/icon-192.png", get(icon_192))
+        .route("/icon-512.png", get(icon_512))
+        .route("/icon-maskable-512.png", get(icon_maskable))
         .route("/reader.css", get(style))
         .route("/reader.js", get(script))
         .route("/read/{book_id}", get(reader))
@@ -97,9 +112,10 @@ impl From<Option<Progress>> for View {
 async fn shelf(
     State(library): State<Arc<Mutex<LibraryState>>>,
     headers: HeaderMap,
+    Query(status): Query<Status>,
 ) -> Response {
     if !authorised(&headers) {
-        return Redirect::to("/").into_response();
+        return Html(crate::drop::login_page(status.status.as_deref())).into_response();
     }
 
     let (library_path, books) = {
@@ -399,6 +415,46 @@ async fn resource(
 
 const OCTET: &str = "application/octet-stream";
 
+async fn offline() -> Response {
+    asset(OFFLINE.as_bytes(), "text/html; charset=utf-8")
+}
+
+async fn manifest_json() -> Response {
+    asset(MANIFEST.as_bytes(), "application/manifest+json")
+}
+
+async fn worker() -> Response {
+    asset(WORKER.as_bytes(), "text/javascript; charset=utf-8")
+}
+
+async fn pwa() -> Response {
+    asset(PWA.as_bytes(), "text/javascript; charset=utf-8")
+}
+
+async fn icon_192() -> Response {
+    icon(ICON_192)
+}
+
+async fn icon_512() -> Response {
+    icon(ICON_512)
+}
+
+async fn icon_maskable() -> Response {
+    icon(ICON_MASKABLE)
+}
+
+fn icon(bytes: &'static [u8]) -> Response {
+    let mut response = Response::new(Body::from(bytes));
+    let headers = response.headers_mut();
+    headers.insert(header::CONTENT_TYPE, HeaderValue::from_static("image/png"));
+    headers.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("public, max-age=86400"),
+    );
+
+    response
+}
+
 async fn style() -> Response {
     asset(STYLE.as_bytes(), "text/css; charset=utf-8")
 }
@@ -409,9 +465,9 @@ async fn script() -> Response {
 
 fn asset(bytes: &'static [u8], mime: &'static str) -> Response {
     let mut response = Response::new(Body::from(bytes));
-    response
-        .headers_mut()
-        .insert(header::CONTENT_TYPE, HeaderValue::from_static(mime));
+    let headers = response.headers_mut();
+    headers.insert(header::CONTENT_TYPE, HeaderValue::from_static(mime));
+    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
 
     response
 }

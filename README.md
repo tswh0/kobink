@@ -56,13 +56,15 @@ appends `/v1` itself. Press Sync afterwards.
 - Volumes arrive as a series with the right numbering. The name comes from the book's metadata,
   or from the title if the book has none (`Fire Punch v03`).
 - A sync with nothing new costs a few kilobytes.
-- A book-drop page at the domain root takes EPUB, CBZ and PDF from the browser, several at once. CBZ and PDF are
+- A book-drop page at `/drop` takes EPUB, CBZ and PDF from the browser, several at once. CBZ and PDF are
   converted with [KCC](https://github.com/ciromattia/kcc) for your e-reader, which needs `LIBRARY_WRITE=:rw` and `ghcr.io/tswh0/kobink:conversion`
   (~400 MB) or a local `KOBINK_TARGET=conversion` build; plain `latest` takes EPUB only.
-- The library also opens in a browser at `/read`, behind the same key: a shelf of covers, a paginated
-  reader for EPUBs and a page-flip viewer for fixed-layout kepubs. Progress goes both ways — a page
-  turned in the browser reaches the reader at its next sync, and where you stop on the reader is where
-  the browser opens.
+- The library is the domain root, behind the same key: a shelf of covers, a paginated reader for EPUBs
+  and a page-flip viewer for fixed-layout kepubs. Progress goes both ways — a page turned in the
+  browser reaches the reader at its next sync, and where you stop on the reader is where the browser
+  opens.
+- Add it to your phone's home screen and it opens full screen: manifest, icons and a service worker
+  that keeps the shell and shows an offline page when the server is away.
 - Deleting a book on the reader moves its file into `.kobink-trash/` at the top of the library.
   `LIBRARY_TRASH=off` deletes it outright instead.
 - Downloads stream and answer `Range`, so an interrupted transfer resumes instead of starting over.

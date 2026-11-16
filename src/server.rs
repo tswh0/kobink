@@ -204,10 +204,12 @@ async fn security_headers(
 }
 
 const PAGE_CSP: &str = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; \
-     connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
+     connect-src 'self'; form-action 'self'; base-uri 'none'; manifest-src 'self'; worker-src 'self'; \
+     frame-ancestors 'none'";
 
 const READER_CSP: &str = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; \
-     connect-src 'self'; form-action 'self'; base-uri 'none'; frame-src 'self'; frame-ancestors 'none'";
+     connect-src 'self'; form-action 'self'; base-uri 'none'; frame-src 'self'; manifest-src 'self'; \
+     worker-src 'self'; frame-ancestors 'none'";
 
 const BOOK_CSP: &str = "default-src 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; \
      font-src 'self'; media-src 'self'; frame-ancestors 'self'; sandbox allow-same-origin";

@@ -40,8 +40,8 @@ const LAZY_ANSWER: Duration = Duration::from_millis(400);
 const DEFAULT_JOBS: usize = 2;
 
 #[derive(Deserialize)]
-struct Status {
-    status: Option<String>,
+pub(crate) struct Status {
+    pub(crate) status: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -66,7 +66,8 @@ pub fn kcc_available() -> bool {
 
 pub fn create_drop_router(prefix: &str) -> Router<Arc<Mutex<LibraryState>>> {
     Router::new()
-        .route("/", get(root).post(login))
+        .route("/", post(login))
+        .route("/drop", get(drop_page))
         .route("/upload", post(upload))
         .route("/style.css", get(style))
         .route("/page.css", get(page_style))
@@ -79,9 +80,9 @@ pub fn create_drop_router(prefix: &str) -> Router<Arc<Mutex<LibraryState>>> {
         .layer(DefaultBodyLimit::max(MAX_UPLOAD))
 }
 
-async fn root(headers: HeaderMap, Query(status): Query<Status>) -> Response {
+async fn drop_page(headers: HeaderMap, Query(status): Query<Status>) -> Response {
     if !authorised(&headers) {
-        return Html(login_page(status.status.as_deref())).into_response();
+        return Redirect::to("/").into_response();
     }
 
     Html(render("/upload", status.status.as_deref())).into_response()
@@ -126,7 +127,7 @@ async fn upload(
         return Redirect::to("/").into_response();
     }
 
-    receive(library, multipart, "/").await
+    receive(library, multipart, "/drop").await
 }
 
 async fn page_upload(
@@ -570,7 +571,7 @@ fn render(action: &str, status: Option<&str>) -> String {
         .replace("{{NOTICE}}", &notices(status))
 }
 
-fn login_page(status: Option<&str>) -> String {
+pub(crate) fn login_page(status: Option<&str>) -> String {
     let notice = match status {
         Some("bad") => "<p class=\"notice\">That key does not match.</p>",
         _ => "",
