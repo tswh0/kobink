@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>kobink · your own Kobo store</title>
+<meta name="description" content="Kobink answers the Kobo store's address from your own machine and serves the EPUBs in a folder, with a shelf and reader in the browser.">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0c0c0d" media="(prefers-color-scheme: dark)">
+<link rel="stylesheet" href="oat.min.css">
+<link rel="stylesheet" href="page.css">
+<link rel="icon" href="favicon.ico" sizes="any">
+<link rel="icon" type="image/png" href="favicon-32.png" sizes="32x32">
+<link rel="icon" type="image/png" href="favicon-192.png" sizes="192x192">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+</head>
+<body>
+
+<header class="hero">
+  <span class="mark" aria-hidden="true"><i></i><i></i><i></i></span>
+  <p class="eyebrow">kobink</p>
+  <h1>Your own Kobo store</h1>
+  <p class="lede">Kobo only downloads from Kobo. Kobink answers at that address instead, and hands out the EPUBs already sitting in a folder on your machine. There is a shelf in the browser too, for when the device is not at hand.</p>
+</header>
+
+<main class="shell">
+  <article class="card">
+    <p>A Kobo asks its store what it owns. Kobink replies with the files in your library, and the reader treats it as a normal sync. No account, no upload, no database.</p>
+
+    <h2>Install</h2>
+
+    <h3>1. Start the container</h3>
+    <p><code>PUBLIC_URL</code> has to be an address the reader can reach, because it ends up inside every download link. If the device can open it in a browser, it is right.</p>
+<pre><code>services:
+  kobink:
+    image: ghcr.io/tswh0/kobink:latest
+    restart: unless-stopped
+    user: "1000:1000"
+    ports: ["3000:3000"]
+    environment:
+      PUBLIC_URL: http://192.168.1.10:3000
+    volumes:
+      - /path/to/books:/library:ro
+      - ./data:/app/data</code></pre>
+    <p>Run <code>chown -R 1000:1000 ./data</code> once, so the container can write the key file.</p>
+
+    <h3>2. Read the key</h3>
+    <p>The first start generates the key and prints it together with the endpoint.</p>
+<pre><code>docker compose up -d
+docker compose logs kobink</code></pre>
+
+    <h3>3. Point the reader at it</h3>
+    <p>Edit <code>.kobo/Kobo/Kobo eReader.conf</code> on the device, then press Sync.</p>
+<pre><code>[OneStoreServices]
+api_endpoint=http://192.168.1.10:3000/PASTE-YOUR-KEY-HERE/kobo</code></pre>
+    <p>The path stops at <code>/kobo</code>. The device appends <code>/v1</code> itself.</p>
+
+    <h2>Read in the browser</h2>
+    <p>Open the same address on a phone or a desktop and paste the key. The library is the root: a shelf of covers, and a tap opens the book, paginated for EPUBs and page by page for the fixed-layout kepubs KCC makes.</p>
+    <p>Position goes both ways. Where you stop on the device is where the browser opens, and a page turned in the browser reaches the device at its next sync. If the two disagree, the book with the most pages read wins.</p>
+    <p>It is an extension of the Kobo, not a reader of its own: no highlights, notes, dictionary or library management. Added to a phone's home screen it opens full screen, with an offline page when the server is away.</p>
+
+    <h2>Drop a book</h2>
+    <p>Upload lives at <code>/drop</code>: drag EPUB, CBZ or PDF, several at once. EPUB is copied as it is; CBZ and PDF are converted for the reader you pick, which needs the bigger image and a writable library:</p>
+<pre><code>    image: ghcr.io/tswh0/kobink:conversion
+    volumes:
+      - /path/to/books:/library:rw</code></pre>
+    <p>Deleting a book on the reader moves the file into <code>.kobink-trash/</code> inside the library. <code>LIBRARY_TRASH=off</code> deletes it outright.</p>
+
+    <h2>What it does</h2>
+    <ul>
+      <li>Covers are cut out of each book at the sizes the device asks for.</li>
+      <li>KCC books are advertised as KEPUB and fixed-layout books as EPUB3FL, which is what keeps manga filling the page.</li>
+      <li>Volumes arrive as a series with the right numbering, from the book's metadata or from its title (<code>Fire Punch v03</code>).</li>
+      <li>A sync with nothing new answers <code>[]</code> in a few kilobytes.</li>
+      <li>The key sits in the URL path. Everything outside it answers 404.</li>
+      <li>No database. One container, two folders.</li>
+    </ul>
+
+    <h2>Notes</h2>
+    <ul>
+      <li>The library is read again every ten minutes: drop a file in, wait, sync. <code>LIBRARY_REFRESH_SECONDS=0</code> turns the timer off.</li>
+      <li>The container runs as uid 1000, so the library has to be readable by that user.</li>
+      <li>Reading progress is one JSON per book in <code>.kobink-progress/</code>, and goes with the book when it is deleted.</li>
+      <li><code>COVER_CACHE_DAYS</code> and <code>TRASH_DAYS</code> (default 30, <code>0</code> keeps forever) prune the cover cache and the trash.</li>
+      <li>HTTP on your own network is fine. Behind a proxy, use HTTPS and keep the link to yourself.</li>
+      <li><code>API_KEY</code> picks the key yourself instead of the generated one.</li>
+    </ul>
+
+    <p class="mt-8"><a class="button" href="https://github.com/tswh0/kobink">Source on GitHub</a></p>
+  </article>
+</main>
+
+<footer>
+  <small>AGPL-3.0 · a fork of <a href="https://github.com/potatoeggy/kobink">potatoeggy/kobink</a></small>
+</footer>
+
+</body>
+</html>
