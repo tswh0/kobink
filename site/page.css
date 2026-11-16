@@ -1,0 +1,160 @@
+:root {
+  --spine: light-dark(#8a5a00, #e7b75c);
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  background-image: repeating-linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--foreground) 4%, transparent) 0 1px,
+    transparent 1px 2rem
+  );
+}
+
+.hero {
+  max-width: 40rem;
+  margin-inline: auto;
+  padding: 4rem 1.25rem 2.5rem;
+  text-align: center;
+}
+.hero .mark {
+  --mark-size: 52px;
+  --mark-gap: 6px;
+  margin: 0 auto .9rem;
+  border-bottom-color: color-mix(in srgb, var(--foreground) 24%, transparent);
+}
+.hero h1 {
+  margin: .1rem 0 .6rem;
+  font-size: var(--text-1);
+  letter-spacing: -.02em;
+  text-wrap: balance;
+}
+.hero .lede {
+  max-width: 33rem;
+  margin: 0 auto;
+  color: var(--muted-foreground);
+  font-size: var(--text-5);
+  text-wrap: pretty;
+}
+
+.mark {
+  --mark-size: 26px;
+  --mark-gap: 3px;
+  display: flex;
+  align-items: flex-end;
+  gap: var(--mark-gap);
+  width: calc(var(--mark-size) * .81);
+  height: var(--mark-size);
+  padding-block-end: 2px;
+  border-bottom: max(1px, calc(var(--mark-size) * .04)) solid var(--border);
+  box-sizing: content-box;
+}
+.mark i {
+  width: calc(var(--mark-size) * .19);
+  border-radius: 1px 1px 0 0;
+  background: color-mix(in srgb, var(--foreground) 30%, transparent);
+}
+.mark i:nth-child(1) { height: 58%; }
+.mark i:nth-child(2) {
+  height: 100%;
+  background: var(--spine);
+  animation: shelve 3.6s cubic-bezier(.3, .7, .3, 1) infinite;
+}
+.mark i:nth-child(3) { height: 76%; }
+
+.eyebrow {
+  margin: 0 0 .2rem;
+  font-family: var(--font-mono);
+  font-size: var(--text-8);
+  letter-spacing: .12em;
+  color: var(--muted-foreground);
+}
+
+.shell {
+  width: 100%;
+  max-width: 46rem;
+  margin-inline: auto;
+  padding-block-start: 0;
+  padding-inline: max(1.25rem, env(safe-area-inset-left), env(safe-area-inset-right));
+  padding-block-end: 3.5rem;
+}
+article.card {
+  position: relative;
+  padding: clamp(1.25rem, 4vw, 2rem);
+}
+article.card::before {
+  content: "";
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-end: 1.6rem;
+  width: .75rem;
+  height: 1.9rem;
+  background: var(--spine);
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 72%, 0 100%);
+}
+h2 {
+  margin-block-start: 2.25rem;
+  text-wrap: balance;
+}
+h3 {
+  margin-block-start: 1.5rem;
+  margin-block-end: .4rem;
+  font-size: var(--text-4);
+  text-wrap: balance;
+}
+p,
+li {
+  text-wrap: pretty;
+}
+ul {
+  padding-inline-start: 1.1rem;
+}
+li + li {
+  margin-block-start: .3rem;
+}
+pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: .8125rem;
+  line-height: 1.55;
+}
+pre code {
+  font-size: 1em;
+}
+footer {
+  padding: 0 1.25rem calc(2.5rem + env(safe-area-inset-bottom));
+  text-align: center;
+}
+footer small {
+  color: var(--muted-foreground);
+  font-size: var(--text-7);
+}
+
+@keyframes shelve {
+  0%, 70%, 100% { transform: translateY(0); }
+  78% { transform: translateY(-2px); }
+  86% { transform: translateY(0); }
+}
+@media (max-width: 30rem) {
+  .hero {
+    padding-top: 2.75rem;
+    text-align: start;
+  }
+  .hero .mark {
+    margin-inline: 0;
+    --mark-size: 40px;
+    --mark-gap: 5px;
+  }
+  .hero .lede {
+    font-size: var(--text-6);
+  }
+  pre {
+    font-size: .75rem;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mark i {
+    animation: none;
+  }
+}
