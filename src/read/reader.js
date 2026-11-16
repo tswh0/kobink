@@ -79,7 +79,7 @@ function typeset(doc) {
   style.textContent = `
     html { height: ${height}px; overflow: hidden; }
     body {
-      margin: 0; padding: 0 ${pad}px; width: ${width}px; height: ${height}px; box-sizing: border-box;
+      margin: 0; padding: ${pad}px; width: ${width}px; height: ${height}px; box-sizing: border-box;
       column-width: ${column}px; column-gap: ${GAP}px; column-fill: auto;
       font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
       font-size: 1.05rem; line-height: 1.62; text-align: justify; hyphens: auto;
@@ -87,7 +87,7 @@ function typeset(doc) {
       transition: transform .18s cubic-bezier(.2,.7,.3,1);
     }
     img, svg, video, table { max-width: 100%; }
-    img { max-height: ${height - 12}px; height: auto; object-fit: contain; }
+    img { max-height: ${height - pad * 2 - 12}px; height: auto; object-fit: contain; }
     p { margin: 0 0 1em; orphans: 2; widows: 2; }
     h1, h2, h3, h4 { line-height: 1.25; text-align: start; break-after: avoid; }
     a { color: inherit; text-decoration-color: color-mix(in srgb, currentColor 45%, transparent); }
