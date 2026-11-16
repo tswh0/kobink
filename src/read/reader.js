@@ -15,6 +15,7 @@ let manifest = null;
 let index = 0;
 let page = 0;
 let pages = 1;
+let measured = { width: 0, height: 0, pitch: 0 };
 let timer = null;
 let resizing = null;
 let current = { percent: 0, chapter: '', chapter_percent: 0, page: 0, status: 'Reading' };
@@ -34,11 +35,8 @@ async function start() {
   }
 }
 
-function metrics() {
-  return {
-    width: Math.max(240, stage.clientWidth - PAD * 2),
-    height: Math.max(240, stage.clientHeight - PAD * 2),
-  };
+function margins() {
+  return stage.clientWidth < 480 ? 16 : PAD;
 }
 
 function restore() {
@@ -62,20 +60,30 @@ function readFrame(fraction) {
   const target = fraction ? Math.round(fraction * (pages - 1)) : 0;
   go(target);
   watchLinks(doc);
+
+  doc.querySelectorAll('img').forEach((image) => {
+    if (!image.complete) image.addEventListener('load', reflow, { once: true });
+  });
 }
 
 function typeset(doc) {
-  const { width, height } = metrics();
+  const pad = margins();
+  const width = Math.max(200, stage.clientWidth);
+  const height = Math.max(240, stage.clientHeight);
+  const column = Math.max(160, width - pad * 2);
   const style = doc.getElementById('kobink-typeset') || doc.createElement('style');
+
+  measured = { width, height, pitch: column + GAP };
+
   style.id = 'kobink-typeset';
   style.textContent = `
     html { height: ${height}px; overflow: hidden; }
     body {
-      margin: 0; padding: 0 ${PAD}px; height: ${height}px; box-sizing: border-box;
-      column-width: ${width}px; column-gap: ${GAP}px; column-fill: auto;
+      margin: 0; padding: 0 ${pad}px; width: ${width}px; height: ${height}px; box-sizing: border-box;
+      column-width: ${column}px; column-gap: ${GAP}px; column-fill: auto;
       font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
       font-size: 1.05rem; line-height: 1.62; text-align: justify; hyphens: auto;
-      background: transparent; color: inherit;
+      background: transparent; color: inherit; overflow: visible;
       transition: transform .18s cubic-bezier(.2,.7,.3,1);
     }
     img, svg, video, table { max-width: 100%; }
@@ -86,14 +94,14 @@ function typeset(doc) {
     ::selection { background: rgb(231 183 92 / 0.4); }
   `;
   doc.head.append(style);
-  pages = Math.max(1, Math.round((doc.body.scrollWidth + GAP) / (width + GAP)));
+  pages = Math.max(1, Math.round((doc.body.scrollWidth + GAP) / measured.pitch));
 }
 
 function go(target) {
   page = clamp(target, 0, pages - 1);
   const doc = frame.contentDocument;
 
-  if (doc) doc.body.style.transform = `translateX(${-page * (metrics().width + GAP)}px)`;
+  if (doc) doc.body.style.transform = `translateX(${-page * measured.pitch}px)`;
 
   report();
 }
@@ -333,17 +341,27 @@ stage.addEventListener('touchend', (event) => {
   else prev();
 }, { passive: true });
 
-addEventListener('resize', () => {
+function reflow() {
   clearTimeout(resizing);
 
   resizing = setTimeout(() => {
     if (!manifest || manifest.layout === 'fixed' || frame.hidden) return;
 
+    const doc = frame.contentDocument;
+    if (!doc) return;
+
     const fraction = pages > 1 ? page / pages : 0;
-    typeset(frame.contentDocument);
+    typeset(doc);
     go(Math.round(fraction * (pages - 1)));
   }, 180);
-});
+}
+
+addEventListener('resize', reflow);
+addEventListener('orientationchange', reflow);
+
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', reflow);
+}
 
 addEventListener('pagehide', save);
 document.addEventListener('visibilitychange', () => {
