@@ -58,7 +58,7 @@ api_endpoint=http://192.168.1.10:3000/PASTE-YOUR-KEY-HERE/kobo</code></pre>
     <h2>Read in the browser</h2>
     <p>Open the same address on a phone or a desktop and paste the key. The library is the root: a shelf of covers, and a tap opens the book, paginated for EPUBs and page by page for the fixed-layout kepubs KCC makes.</p>
     <p>Position goes both ways. Where you stop on the device is where the browser opens, and a page turned in the browser reaches the device at its next sync. If the two disagree, the book with the most pages read wins.</p>
-    <p>It is an extension of the Kobo, not a reader of its own: no highlights, notes, dictionary or library management. Added to a phone's home screen it opens full screen, with an offline page when the server is away.</p>
+    <p>It is an extension of the Kobo, not a reader of its own: no highlights, notes, dictionary or library management. Added to a phone's home screen it opens full screen. A fixed-layout book can be saved from the reading bar and read with no connection; progress made offline lands on the server at the next open.</p>
 
     <h2>Drop a book</h2>
     <p>Upload lives at <code>/drop</code>: drag EPUB, CBZ or PDF, several at once. EPUB is copied as it is; CBZ and PDF are converted for the reader you pick, which needs the bigger image and a writable library:</p>
@@ -83,7 +83,7 @@ api_endpoint=http://192.168.1.10:3000/PASTE-YOUR-KEY-HERE/kobo</code></pre>
       <li>The container runs as uid 1000, so the library has to be readable by that user.</li>
       <li>Reading progress is one JSON per book in <code>.kobink-progress/</code>, and goes with the book when it is deleted.</li>
       <li><code>COVER_CACHE_DAYS</code> and <code>TRASH_DAYS</code> (default 30, <code>0</code> keeps forever) prune the cover cache and the trash.</li>
-      <li>HTTP on your own network is fine. Behind a proxy, use HTTPS and keep the link to yourself.</li>
+      <li>HTTP on your own network is fine. Behind a proxy, use HTTPS and keep the link to yourself. Offline copies need HTTPS or localhost, since service workers do not run on plain HTTP; the reader works either way.</li>
       <li><code>API_KEY</code> picks the key yourself instead of the generated one.</li>
     </ul>
 
