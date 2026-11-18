@@ -333,6 +333,7 @@ check "reader script" "$(status "$BASE/reader.js")" 200
 
 if command -v node >/dev/null; then
     node --check "$DIR/../src/read/reader.js" || fail "the reader script does not parse"
+    node --check "$DIR/../src/read/sw.js" || fail "the worker does not parse"
     say "reader script parses" yes
 fi
 
@@ -416,6 +417,9 @@ json "manifest icons" "$manifest" '[.icons[] | select(.sizes == "512x512")] | le
 check "manifest type" "$(header content-type "$BASE/manifest.webmanifest")" "application/manifest+json"
 check "service worker" "$(status "$BASE/sw.js")" 200
 check "service worker type" "$(header content-type "$BASE/sw.js")" "text/javascript;"
+body=$(curl -s "$BASE/sw.js")
+[[ $body == *"kobink-book-"* ]] || fail "the worker has no per-book cache"
+[[ $body == *"offline-save"* ]] || fail "the worker takes no offline save"
 check "icon 192" "$(status "$BASE/icon-192.png")" 200
 check "icon 512" "$(status "$BASE/icon-512.png")" 200
 check "icon maskable" "$(status "$BASE/icon-maskable-512.png")" 200
@@ -562,10 +566,16 @@ done
 manifest=$(curl -s -b "$jar" "$BASE/read/$fixed/manifest")
 json "fixed layout" "$manifest" '.layout' fixed
 json "fixed pages" "$manifest" '.pages | length' 3
+json "fixed version" "$manifest" '.version | length > 0' true
+
+body=$(curl -s -b "$jar" "$BASE/read/$fixed")
+[[ $body == *'id="offline"'* ]] || fail "the reader has no offline control"
 
 page=$(printf '%s' "$manifest" | jq -r '.pages[1].src')
 check "page image" "$(status -b "$jar" "$BASE/read/$fixed/res/$page")" 200
 check "page image type" "$(header content-type "$BASE/read/$fixed/res/$page" -b "$jar")" image/png
+check "page image cache" "$(header_value cache-control "$BASE/read/$fixed/res/$page" -b "$jar")" "private, max-age=600"
+check "page image immutable" "$(header_value cache-control "$BASE/read/$fixed/res/$page?v=1" -b "$jar")" "private, max-age=31536000, immutable"
 
 check "page position" "$(status -X PUT -b "$jar" -H 'content-type: application/json' \
     -d '{"percent":66.6,"chapter":"","chapter_percent":0,"page":2,"status":"Reading"}' \

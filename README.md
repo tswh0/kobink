@@ -72,14 +72,16 @@ you stop on the device is where the browser opens, and a page turned in the brow
 device at its next sync. No highlights, notes, dictionary or library management: no full web
 reader, just somewhere to read while the device is on the shelf.
 
-Installable to a phone home screen, with an offline page when the server is down. Progress is one
-JSON per book in `.kobink-progress/`, and goes with the book.
+Installable to a phone home screen. A fixed-layout book can be saved to the device from the reading
+bar and read with no connection; progress waits in the browser and lands on the server at the next
+open. Progress is one JSON per book in `.kobink-progress/`, and goes with the book.
 
 ## Notes
 
 - Forked from [potatoeggy/kobink](https://github.com/potatoeggy/kobink), which is the basic sync.
   Everything else here is mine.
-- HTTP on your LAN is fine. Behind a reverse proxy use HTTPS and keep the link to yourself.
+- HTTP on your LAN is fine. Behind a reverse proxy use HTTPS and keep the link to yourself. Offline
+  copies need a secure context (HTTPS or localhost); the reader works either way.
 - `.epub` for books, `.kepub.epub` (KCC) for manga; a CBZ is counted in the scan but never synced.
 - `COVER_CACHE_DAYS` and `TRASH_DAYS` (default 30, `0` keeps forever) prune the cover cache and
   `.kobink-trash`; `API_KEY` picks the code instead of the generated one.

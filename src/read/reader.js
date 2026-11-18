@@ -8,10 +8,21 @@ const toc = document.getElementById('toc');
 const tocButton = document.querySelector('.reader-contents');
 const tocClose = document.querySelector('.reader-toc-close');
 const scrim = document.querySelector('.reader-scrim');
+const wait = document.getElementById('wait');
+const retry = document.getElementById('retry');
+const offlineButton = document.getElementById('offline');
+const offlinePanel = document.getElementById('offline-panel');
+const offlineClose = document.querySelector('.reader-offline-close');
+const offlineState = document.getElementById('offline-state');
+const offlineAction = document.getElementById('offline-action');
 
 const GAP = 40;
 const PAD = 24;
 const SAVE_DELAY = 1200;
+const WAIT_DELAY = 400;
+const OFFLINE_KEY = 'kobink:offline';
+const QUEUE_KEY = 'kobink:progress';
+const AHEAD = navigator.connection && navigator.connection.saveData ? 1 : 4;
 
 let manifest = null;
 let index = 0;
@@ -20,15 +31,45 @@ let pages = 1;
 let pitch = 0;
 let timer = null;
 let resizing = null;
+let waited = null;
+let painted = null;
+let saving = null;
 let current = { percent: 0, chapter: '', chapter_percent: 0, page: 0, status: 'Reading' };
 
 const clamp = (value, low, high) => Math.min(high, Math.max(low, value));
+const pageUrl = (src) => `/read/${book}/res/${encodeURI(src)}?v=${encodeURIComponent(manifest.version)}`;
+const records = () => read(OFFLINE_KEY, {});
+const record = () => records()[book];
+
+function read(key, fallback) {
+  try {
+    return JSON.parse(localStorage.getItem(key)) || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function write(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {}
+}
 
 async function start() {
-  manifest = await fetch(`/read/${book}/manifest`).then((response) => response.json());
+  try {
+    const response = await fetch(`/read/${book}/manifest`);
+    if (!response.ok) throw new Error(String(response.status));
+    manifest = await response.json();
+  } catch {
+    showRetry('Offline — tap to retry');
+    return;
+  }
+
   current = { ...current, ...manifest.progress };
   document.body.classList.toggle('fixed', manifest.layout === 'fixed');
   buildToc();
+  setupOffline();
+  flush();
 
   if (manifest.layout === 'fixed') {
     showPlate();
@@ -46,8 +87,13 @@ function restore() {
 function openChapter(fraction) {
   frame.hidden = false;
   plate.hidden = true;
-  frame.onload = () => readFrame(fraction);
-  frame.src = `/read/${book}/res/${encodeURI(manifest.chapters[index].href)}`;
+  retry.hidden = true;
+  waiting();
+  frame.onload = () => {
+    loaded();
+    readFrame(fraction);
+  };
+  frame.src = pageUrl(manifest.chapters[index].href);
 }
 
 function readFrame(fraction) {
@@ -104,7 +150,7 @@ function typeset(doc) {
     a { color: inherit; text-decoration-color: color-mix(in srgb, currentColor 45%, transparent); }
     ::selection { background: rgb(231 183 92 / 0.4); }
   `;
-  doc.head.append(style);
+  (doc.head || doc.body).append(style);
   pages = Math.max(1, Math.round((doc.body.scrollWidth + GAP) / pitch));
 }
 
@@ -163,15 +209,98 @@ function paint() {
   const item = manifest.pages[page];
   if (!item) return;
 
-  plate.src = `/read/${book}/res/${encodeURI(item.src)}`;
-  warm(page + 1);
-  warm(page - 1);
+  const src = pageUrl(item.src);
+
+  if (painted !== src) {
+    painted = src;
+    retry.hidden = true;
+    plate.hidden = false;
+    waiting();
+    plate.src = src;
+  }
+
+  around(page);
   report();
 }
 
-function warm(at) {
+const wanted = new Set();
+const queued = [];
+let active = 0;
+
+function around(at) {
+  for (let step = 1; step <= AHEAD; step += 1) want(at + step);
+  want(at - 1);
+}
+
+function want(at) {
   const item = manifest.pages[at];
-  if (item) new Image().src = `/read/${book}/res/${encodeURI(item.src)}`;
+  if (!item) return;
+
+  const src = pageUrl(item.src);
+  if (wanted.has(src)) return;
+
+  wanted.add(src);
+  queued.push(src);
+
+  if (queued.length > 8) wanted.delete(queued.shift());
+
+  pump();
+}
+
+function pump() {
+  if (!navigator.onLine) return;
+
+  while (active < 3 && queued.length) {
+    load(queued.shift(), 0);
+  }
+}
+
+function load(src, attempt) {
+  active += 1;
+
+  const image = new Image();
+
+  image.onload = () => {
+    active -= 1;
+    pump();
+  };
+
+  image.onerror = () => {
+    active -= 1;
+
+    if (attempt < 1) {
+      setTimeout(() => {
+        queued.unshift(src);
+        pump();
+      }, 1500);
+    } else {
+      wanted.delete(src);
+    }
+
+    pump();
+  };
+
+  image.src = src;
+}
+
+function waiting() {
+  clearTimeout(waited);
+
+  waited = setTimeout(() => {
+    wait.hidden = false;
+  }, WAIT_DELAY);
+}
+
+function loaded() {
+  clearTimeout(waited);
+  wait.hidden = true;
+}
+
+function showRetry(message) {
+  retry.textContent = message;
+  retry.hidden = false;
+  plate.hidden = true;
+  frame.hidden = true;
 }
 
 function report() {
@@ -213,12 +342,207 @@ function save() {
     status: current.status || 'Reading',
   };
 
+  if (!navigator.onLine) {
+    queue(body);
+    return;
+  }
+
   fetch(`/read/${book}/progress`, {
     method: 'PUT',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
     keepalive: true,
-  }).catch(() => {});
+  })
+    .then((response) => {
+      if (response.ok || response.status === 404) {
+        const pending = read(QUEUE_KEY, {});
+
+        if (pending[book]) {
+          delete pending[book];
+          write(QUEUE_KEY, pending);
+        }
+
+        return;
+      }
+
+      queue(body);
+    })
+    .catch(() => queue(body));
+}
+
+function queue(body) {
+  const pending = read(QUEUE_KEY, {});
+  pending[book] = body;
+  write(QUEUE_KEY, pending);
+}
+
+function flush() {
+  const pending = read(QUEUE_KEY, {});
+
+  Object.keys(pending).forEach((id) => {
+    fetch(`/read/${id}/progress`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(pending[id]),
+      keepalive: true,
+    })
+      .then((response) => {
+        if (!response.ok && response.status !== 404) return;
+
+        const rest = read(QUEUE_KEY, {});
+        delete rest[id];
+        write(QUEUE_KEY, rest);
+      })
+      .catch(() => {});
+  });
+}
+
+function setupOffline() {
+  if (manifest.layout !== 'fixed' || !('serviceWorker' in navigator) || !window.isSecureContext) {
+    offlineButton.hidden = true;
+    return;
+  }
+
+  offlineButton.hidden = false;
+  syncOffline();
+  paintOffline();
+  verifyOffline();
+}
+
+async function verifyOffline() {
+  const saved = record();
+  if (!saved || !saved.complete || !('caches' in window)) return;
+
+  let present = false;
+
+  try {
+    present = Boolean(await caches.match(`/read/${book}/manifest`));
+  } catch {}
+
+  if (present) return;
+
+  const all = records();
+  delete all[book];
+  write(OFFLINE_KEY, all);
+  paintOffline();
+}
+
+function syncOffline() {
+  const saved = record();
+  if (!saved || saved.version === manifest.version) return;
+
+  const all = records();
+  delete all[book];
+  write(OFFLINE_KEY, all);
+
+  workerReady().then((worker) => {
+    if (worker) worker.postMessage({ type: 'offline-remove', id: book });
+  });
+}
+
+function paintOffline() {
+  const saved = record();
+
+  offlineButton.classList.toggle('saved', Boolean(saved && saved.complete && !saving));
+
+  if (saving) {
+    offlineButton.textContent = `${Math.round((saving.done / saving.total) * 100)}%`;
+  } else if (saved && saved.complete) {
+    offlineButton.textContent = 'Offline';
+  } else if (saved) {
+    offlineButton.textContent = 'Resume';
+  } else {
+    offlineButton.textContent = 'Save';
+  }
+
+  renderPanel();
+}
+
+function renderPanel() {
+  const saved = record();
+
+  if (saving) {
+    offlineState.textContent = `Saving ${saving.done} of ${saving.total}.`;
+    offlineAction.textContent = 'Stop';
+    offlineAction.dataset.action = 'stop';
+  } else if (saved && saved.complete) {
+    offlineState.textContent = `${saved.pages} pages · ${size(saved.bytes)} on this device.`;
+    offlineAction.textContent = 'Remove';
+    offlineAction.dataset.action = 'remove';
+  } else if (saved) {
+    offlineState.textContent = `Paused at ${saved.done} of ${saved.total}.`;
+    offlineAction.textContent = 'Resume';
+    offlineAction.dataset.action = 'save';
+  } else {
+    offlineState.textContent = `${manifest.pages.length} pages · kept on this device.`;
+    offlineAction.textContent = 'Save';
+    offlineAction.dataset.action = 'save';
+  }
+}
+
+function size(value) {
+  if (!value) return '0 KB';
+  if (value < 1024 * 1024) return `${Math.max(1, Math.round(value / 1024))} KB`;
+
+  return `${Math.round(value / 1024 / 1024)} MB`;
+}
+
+async function startOffline() {
+  if (saving) return;
+
+  closePanels();
+
+  const assets = [...document.querySelectorAll('link[rel="stylesheet"], script[src]')].map(
+    (node) => node.getAttribute('href') || node.getAttribute('src')
+  );
+
+  const urls = [
+    `/read/${book}`,
+    `/read/${book}/manifest`,
+    ...assets,
+    ...manifest.pages.map((item) => pageUrl(item.src)),
+  ];
+
+  saving = { done: 0, total: urls.length, bytes: 0 };
+  paintOffline();
+
+  const worker = await workerReady();
+
+  if (!worker) {
+    saving = null;
+    paintOffline();
+    return;
+  }
+
+  if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+
+  worker.postMessage({ type: 'offline-save', id: book, version: manifest.version, urls });
+}
+
+function workerReady() {
+  if (!('serviceWorker' in navigator)) return Promise.resolve(null);
+
+  return Promise.race([
+    navigator.serviceWorker.ready.then((registration) => registration.active),
+    new Promise((resolve) => setTimeout(() => resolve(null), 3000)),
+  ]).catch(() => null);
+}
+
+function openOffline() {
+  closeToc();
+  offlinePanel.hidden = false;
+  scrim.hidden = false;
+  renderPanel();
+}
+
+function closeOffline() {
+  offlinePanel.hidden = true;
+}
+
+function closePanels() {
+  closeToc();
+  closeOffline();
+  scrim.hidden = true;
 }
 
 function buildToc() {
@@ -262,6 +586,8 @@ function highlight() {
 
 function toggleToc() {
   const open = toc.hidden;
+
+  if (open) closeOffline();
 
   toc.hidden = !open;
   scrim.hidden = !open;
@@ -334,7 +660,95 @@ document.querySelector('.reader-next').addEventListener('click', next);
 document.querySelector('.reader-prev').addEventListener('click', prev);
 tocButton.addEventListener('click', toggleToc);
 tocClose.addEventListener('click', closeToc);
-scrim.addEventListener('click', closeToc);
+offlineClose.addEventListener('click', closePanels);
+scrim.addEventListener('click', closePanels);
+plate.addEventListener('load', loaded);
+plate.addEventListener('error', () => {
+  loaded();
+  retry.hidden = false;
+  plate.hidden = true;
+});
+
+retry.addEventListener('click', () => {
+  if (manifest && manifest.layout === 'fixed') {
+    retry.hidden = true;
+    plate.hidden = false;
+    painted = null;
+    paint();
+    return;
+  }
+
+  location.reload();
+});
+
+offlineButton.addEventListener('click', () => {
+  const saved = record();
+
+  if (saving) {
+    openOffline();
+    return;
+  }
+
+  if (!saved || !saved.complete) {
+    startOffline();
+    return;
+  }
+
+  openOffline();
+});
+
+offlineAction.addEventListener('click', async () => {
+  const action = offlineAction.dataset.action;
+
+  if (action === 'stop') {
+    const worker = await workerReady();
+    if (worker) worker.postMessage({ type: 'offline-cancel', id: book });
+    return;
+  }
+
+  if (action === 'remove') {
+    const worker = await workerReady();
+    if (worker) worker.postMessage({ type: 'offline-remove', id: book });
+
+    const all = records();
+    delete all[book];
+    write(OFFLINE_KEY, all);
+    saving = null;
+    paintOffline();
+    closePanels();
+    return;
+  }
+
+  startOffline();
+});
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.addEventListener('message', (event) => {
+    const data = event.data || {};
+    if (data.id !== book) return;
+
+    if (data.type === 'offline-progress') {
+      saving = { done: data.done, total: data.total, bytes: data.bytes };
+      paintOffline();
+    }
+
+    if (data.type === 'offline-done') {
+      saving = null;
+
+      const all = records();
+      all[book] = {
+        version: manifest.version,
+        pages: manifest.pages.length,
+        done: data.done,
+        total: data.total,
+        bytes: data.bytes,
+        complete: data.complete,
+      };
+      write(OFFLINE_KEY, all);
+      paintOffline();
+    }
+  });
+}
 
 addEventListener('keydown', (event) => {
   if (event.key === 'ArrowRight' || event.key === ' ' || event.key === 'PageDown') {
@@ -347,7 +761,12 @@ addEventListener('keydown', (event) => {
     prev();
   }
 
-  if (event.key === 'Escape') closeToc();
+  if (event.key === 'Escape') closePanels();
+});
+
+addEventListener('online', () => {
+  flush();
+  pump();
 });
 
 function swipe(target) {
@@ -399,7 +818,11 @@ if (window.visualViewport) {
 
 addEventListener('pagehide', save);
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'hidden') save();
+  if (document.visibilityState === 'hidden') {
+    save();
+  } else {
+    flush();
+  }
 });
 
 start();
