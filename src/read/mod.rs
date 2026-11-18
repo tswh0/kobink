@@ -103,6 +103,7 @@ struct Manifest {
     title: String,
     author: String,
     layout: &'static str,
+    version: String,
     chapters: Vec<Chapter>,
     pages: Vec<Page>,
     progress: View,
@@ -141,6 +142,16 @@ impl From<Option<Progress>> for View {
             })
             .unwrap_or_default()
     }
+}
+
+fn version_of(book: &Book) -> String {
+    let stamp = book
+        .modified
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+
+    format!("{:x}-{:x}", book.size, stamp)
 }
 
 async fn shelf(
@@ -382,6 +393,7 @@ async fn manifest(
 
     let path = book.path.clone();
     let fixed = book.fixed_layout;
+    let version = version_of(&book);
     let structure = match tokio::task::spawn_blocking(move || structure_for(&path, fixed)).await {
         Ok(Some(structure)) => structure,
         Ok(None) => return StatusCode::NOT_FOUND.into_response(),
@@ -401,6 +413,7 @@ async fn manifest(
         title: book.title.clone(),
         author: book.author.clone(),
         layout: if fixed { "fixed" } else { "flow" },
+        version,
         chapters: structure.chapters.clone(),
         pages: structure.pages.clone(),
         progress: view,
@@ -475,6 +488,7 @@ async fn write_progress(
 async fn resource(
     State(library): State<Arc<Mutex<LibraryState>>>,
     headers: HeaderMap,
+    uri: Uri,
     Route((book_id, path)): Route<(String, String)>,
 ) -> Response {
     if !authorised(&headers) {
@@ -509,7 +523,11 @@ async fn resource(
             response.headers_mut().insert(header::CONTENT_TYPE, mime);
             response.headers_mut().insert(
                 header::CACHE_CONTROL,
-                HeaderValue::from_static("private, max-age=600"),
+                HeaderValue::from_static(if versioned(&uri) {
+                    "private, max-age=31536000, immutable"
+                } else {
+                    "private, max-age=600"
+                }),
             );
 
             response

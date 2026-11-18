@@ -124,6 +124,21 @@
   background: linear-gradient(to bottom, var(--spine), transparent 78%);
 }
 
+.book .offline-mark {
+  position: absolute;
+  inset-block-start: 0.35rem;
+  inset-inline-end: 0.35rem;
+  z-index: 2;
+  padding: 0.1rem 0.35rem;
+  border-radius: var(--radius-full);
+  font-family: var(--font-mono);
+  font-size: 0.55rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--background);
+  background: var(--spine);
+}
+
 .book .cover img {
   position: relative;
   z-index: 1;
@@ -267,6 +282,32 @@
   border-color: var(--foreground);
 }
 
+.reader-offline {
+  min-block-size: 2.75rem;
+  font: inherit;
+  font-size: var(--text-7);
+  font-family: var(--font-mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+  background: none;
+  border: 1px solid color-mix(in srgb, var(--foreground) 32%, transparent);
+  border-radius: var(--radius-full);
+  padding-inline: 0.9rem;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.reader-offline:hover,
+.reader-offline.saved {
+  color: var(--spine);
+  border-color: var(--spine);
+}
+
+.reader-offline[hidden] {
+  display: none;
+}
+
 .reader-stage {
   position: relative;
   min-width: 0;
@@ -336,6 +377,27 @@
   );
 }
 
+.reader-retry {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: color-mix(in srgb, var(--background) 88%, transparent);
+  color: var(--foreground);
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: var(--text-7);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.reader-retry[hidden] {
+  display: none;
+}
+
 .reader-rail {
   display: flex;
   align-items: center;
@@ -363,6 +425,25 @@
   width: 0;
   background: var(--spine);
   transition: width 0.25s ease;
+}
+
+.reader-wait {
+  flex: 0 0 auto;
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: var(--radius-full);
+  background: var(--spine);
+  animation: pulse 1.1s ease-in-out infinite;
+}
+
+.reader-wait[hidden] {
+  display: none;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.25;
+  }
 }
 
 .reader-scrim {
@@ -419,7 +500,8 @@
   color: var(--foreground);
 }
 
-.reader-toc h2 {
+.reader-toc h2,
+.reader-offline-panel h2 {
   margin: 0.2rem 0 0.9rem;
   font-family: var(--font-mono);
   font-size: var(--text-8);
@@ -460,6 +542,52 @@
   color: var(--foreground);
   font-weight: var(--font-medium);
   box-shadow: inset 2px 0 0 var(--spine);
+}
+
+.reader-offline-panel {
+  position: fixed;
+  inset-block: 0;
+  inset-inline-end: 0;
+  width: min(22rem, 88vw);
+  padding: calc(1.1rem + env(safe-area-inset-top))
+    calc(1.2rem + env(safe-area-inset-right))
+    calc(2rem + env(safe-area-inset-bottom)) 1.2rem;
+  background: var(--card);
+  border-inline-start: 1px solid var(--border);
+  box-shadow: var(--shadow-large);
+  z-index: 4;
+  animation: slide-in 0.22s cubic-bezier(0.2, 0.7, 0.3, 1) both;
+}
+
+.reader-offline-panel[hidden] {
+  display: none;
+}
+
+.reader-offline-panel p {
+  margin: 0 0 1.4rem;
+  font-size: var(--text-6);
+  color: var(--muted-foreground);
+}
+
+.reader-offline-action {
+  width: auto;
+  min-block-size: 2.75rem;
+  font: inherit;
+  font-size: var(--text-7);
+  font-family: var(--font-mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding-inline: 1.2rem;
+  color: var(--foreground);
+  background: none;
+  border: 1px solid color-mix(in srgb, var(--foreground) 32%, transparent);
+  border-radius: var(--radius-full);
+  cursor: pointer;
+}
+
+.reader-offline-action:hover {
+  border-color: var(--spine);
+  color: var(--spine);
 }
 
 @keyframes slide-in {
@@ -540,6 +668,15 @@
   .reader-bar,
   .reader-rail {
     padding-inline: 0.85rem;
+  }
+
+  .reader-bar {
+    gap: 0.5rem;
+  }
+
+  .reader-offline,
+  .reader-contents {
+    padding-inline: 0.6rem;
   }
 
   .reader-title {

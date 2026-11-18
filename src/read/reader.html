@@ -16,13 +16,14 @@
 <meta name="apple-mobile-web-app-title" content="kobink">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="stylesheet" href="/style.css?v=2">
-<link rel="stylesheet" href="/reader.css?v=15">
+<link rel="stylesheet" href="/reader.css?v=16">
 </head>
 <body class="reader-page" data-book="{{ID}}">
 
 <header class="reader-bar">
   <a class="reader-back" href="/" aria-label="Back to the library">←</a>
   <p class="reader-title">{{TITLE}}</p>
+  <button class="reader-offline" id="offline" type="button" hidden>Save</button>
   <button class="reader-contents" type="button" aria-expanded="false">Contents</button>
 </header>
 
@@ -31,17 +32,25 @@
   <img id="plate" alt="" hidden>
   <button class="reader-zone reader-prev" type="button" aria-label="Previous page"></button>
   <button class="reader-zone reader-next" type="button" aria-label="Next page"></button>
+  <button class="reader-retry" id="retry" type="button" hidden>Tap to retry</button>
 </main>
 
-<footer class="reader-rail"><span id="rail"><i></i></span><b id="percent">0%</b></footer>
+<footer class="reader-rail"><span id="rail"><i></i></span><em class="reader-wait" id="wait" hidden aria-hidden="true"></em><b id="percent">0%</b></footer>
 
-<button class="reader-scrim" type="button" aria-label="Close the contents" hidden></button>
+<button class="reader-scrim" type="button" aria-label="Close the panel" hidden></button>
 <nav class="reader-toc" id="toc" aria-label="Contents" hidden>
   <button class="reader-toc-close" type="button" aria-label="Close the contents">×</button>
 </nav>
 
+<section class="reader-offline-panel" id="offline-panel" aria-label="Offline copy" hidden>
+  <button class="reader-toc-close reader-offline-close" type="button" aria-label="Close the offline copy">×</button>
+  <h2>Offline copy</h2>
+  <p id="offline-state"></p>
+  <button class="reader-offline-action" id="offline-action" type="button" data-action="save">Save</button>
+</section>
+
 <script src="/pwa.js?v=1" defer></script>
-<script src="/reader.js?v=10" defer></script>
+<script src="/reader.js?v=11" defer></script>
 
 </body>
 </html>
