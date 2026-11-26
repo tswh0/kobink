@@ -135,6 +135,7 @@
 }
 
 .gem-dropdown.is-open { display: block; }
+.gem-dropdown--right { left: auto; right: 0; }
 
 .gem-dropdown li { display: flex; }
 .gem-dropdown a,
