@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#00aaa9">
+<title>dev adjacent — Consistency is a feature</title>
+<link rel="stylesheet" href="gem.css">
+<style>
+  html, body { height: 100%; }
+  body { margin: 0; }
+  .page { min-height: 100%; display: flex; flex-direction: column; }
+  .page .gem-menubar { position: sticky; top: 0; }
+  .page__main { flex: 1; width: 100%; max-width: 960px; margin: 0 auto; padding: 16px; display: flex; gap: 16px; align-items: flex-start; }
+  .page__doc { flex: 1 1 640px; min-width: 0; max-width: 720px; margin-inline: auto; }
+  .page__side { flex: 0 0 224px; position: sticky; top: 24px; }
+  .page__doc .gem-body { padding: 16px; }
+  .page__title { margin: 0 0 16px; font-size: 16px; line-height: 16px; }
+  .page__meta { margin: 0 0 24px; }
+  .page__text { margin: 0 0 16px; line-height: 24px; }
+  .page__text a { color: #000; }
+  .page__text code { background: #000; color: #fff; padding: 0 8px; }
+  .page__list { margin: 0 0 16px; padding: 0; list-style: none; }
+  .page__list li { line-height: 24px; }
+  .page__list li::before { content: "· "; }
+  .page__side .gem-body { padding: 8px; }
+  .page__side ul { margin: 0; padding: 0; list-style: none; }
+  .page__side li { line-height: 24px; }
+  .page__side a { color: #000; text-decoration: none; }
+  .page__side a:hover { background: #000; color: #fff; }
+  .page__foot { padding: 4px 8px; background: #fff; border-top: 1px solid #000; display: flex; gap: 24px; }
+  @media (max-width: 760px) {
+    .page__main { flex-direction: column; align-items: stretch; padding: 8px; }
+    .page__doc { flex: 1 1 auto; width: 100%; }
+    .page__side { flex: 0 0 auto; width: 100%; }
+  }
+  @media (max-width: 480px) {
+    .page__opt { display: none; }
+    .gem-menubar { gap: 8px; }
+  }
+</style>
+</head>
+<body class="gem gem-desktop gem--3d">
+<div class="page">
+
+  <nav class="gem-menubar" aria-label="Main">
+    <div class="gem-menuwrap"><button class="gem-appname" data-menu="p-desk" aria-haspopup="true" aria-expanded="false">dev adjacent</button>
+      <ul class="gem-dropdown" id="p-desk" role="menu">
+        <li><a href="#">About</a></li>
+        <li><a href="#">Archive</a></li>
+        <li class="gem-sep" role="separator"></li>
+        <li><a href="#">RSS feed</a></li>
+      </ul>
+    </div>
+    <div class="gem-menuwrap page__opt"><button data-menu="p-file" aria-haspopup="true" aria-expanded="false">File</button>
+      <ul class="gem-dropdown" id="p-file" role="menu">
+        <li><a href="#">New Post... <span class="gem-key">^N</span></a></li>
+        <li><a href="#">Open... <span class="gem-key">^O</span></a></li>
+        <li class="gem-sep" role="separator"></li>
+        <li><a href="#">Print <span class="gem-key">^P</span></a></li>
+      </ul>
+    </div>
+    <div class="gem-menuwrap page__opt"><button data-menu="p-edit" aria-haspopup="true" aria-expanded="false">Edit</button>
+      <ul class="gem-dropdown" id="p-edit" role="menu">
+        <li><a href="#">Copy <span class="gem-key">^C</span></a></li>
+        <li><a href="#">Find... <span class="gem-key">^F</span></a></li>
+      </ul>
+    </div>
+    <span class="gem-spacer"></span>
+    <div class="gem-menuwrap"><button data-menu="p-help" aria-haspopup="true" aria-expanded="false">Help</button>
+      <ul class="gem-dropdown gem-dropdown--right" id="p-help" role="menu">
+        <li><a href="#">Contents</a></li>
+        <li><a href="#">Keys</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <main class="page__main">
+    <section class="gem-window page__doc" aria-label="Consistency is a feature">
+      <div class="gem-titlebar">
+        <div class="gem-title"><span>CONSISTENCY.TXT</span></div>
+      </div>
+      <div class="gem-infoline">2.8 KB used · 26 November 2026 · 4 min read</div>
+      <div class="gem-body">
+        <article>
+          <h1 class="page__title">Consistency is a feature</h1>
+          <p class="page__meta">Filed under <a href="#">interfaces</a>, <a href="#">history</a>.</p>
+
+          <p class="page__text">Every GEM application had the same menu bar: the program name on the left, then <code>File</code>, then <code>Edit</code>, then whatever else the program needed, with <code>Help</code> on the far right. That was not a limitation. It was a promise: learn one program, and you have learned the shape of all of them.</p>
+
+          <p class="page__text">The same promise shows up in smaller things. A button that opens a dialog ends with an ellipsis. A disabled item is greyed out instead of hidden. The default button is the positive one, unless the action cannot be undone. Alerts say what happened and what to do next, in that order.</p>
+
+          <h2 class="page__title">What to steal</h2>
+          <ul class="page__list">
+            <li>One visual language for chrome; colour only for meaning.</li>
+            <li>Hard 1px edges, 16px rows, no gradients, no shadows.</li>
+            <li>Menus that stay in the same place in every window.</li>
+            <li>Dialogs that name the thing they are changing.</li>
+          </ul>
+
+          <p class="page__text">None of this needs a framework. The whole interface below is a stylesheet and a handful of semantic elements — buttons, fieldsets, selects, and a menu built from lists.</p>
+
+          <div class="gem-toolbar" role="toolbar" aria-label="Actions">
+            <button class="gem-btn is-default"><u>O</u>K</button>
+            <button class="gem-btn"><u>C</u>ancel</button>
+            <button class="gem-btn"><u>H</u>elp</button>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <aside class="gem-window page__side" aria-label="Contents">
+      <div class="gem-titlebar">
+        <div class="gem-title"><span>CONTENTS</span></div>
+      </div>
+      <div class="gem-body">
+        <ul>
+          <li><a href="#">About</a></li>
+          <li><a href="#">Archive</a></li>
+          <li><a href="#">Interfaces</a></li>
+          <li><a href="#">History</a></li>
+          <li><a href="#">Colophon</a></li>
+        </ul>
+        <div class="gem-progress" style="margin-top:16px" role="progressbar" aria-valuenow="72" aria-valuemin="0" aria-valuemax="100"><div class="gem-progress__fill" style="width:72%"></div></div>
+        <p style="margin:4px 0 0">72% written</p>
+        <div class="gem-check-row" style="margin-top:16px">
+          <input class="gem-check" type="checkbox" id="tos4" checked>
+          <label for="tos4">TOS 4 colours</label>
+        </div>
+      </div>
+    </aside>
+  </main>
+
+  <footer class="page__foot">
+    <span>dev adjacent</span>
+    <span>640 x 400</span>
+    <span class="gem-grow"></span>
+    <span>16 colours</span>
+  </footer>
+</div>
+
+<script>
+  const closeMenus = () => {
+    document.querySelectorAll('.gem-dropdown.is-open').forEach(m => m.classList.remove('is-open'));
+    document.querySelectorAll('[data-menu][aria-expanded="true"]').forEach(b => { b.classList.remove('is-open'); b.setAttribute('aria-expanded', 'false'); });
+  };
+  document.querySelectorAll('[data-menu]').forEach(btn => {
+    btn.addEventListener('click', event => {
+      event.stopPropagation();
+      const menu = document.getElementById(btn.dataset.menu);
+      const wasOpen = menu.classList.contains('is-open');
+      closeMenus();
+      if (!wasOpen) { menu.classList.add('is-open'); btn.classList.add('is-open'); btn.setAttribute('aria-expanded', 'true'); }
+    });
+  });
+  document.addEventListener('click', closeMenus);
+  document.addEventListener('keydown', event => { if (event.key === 'Escape') closeMenus(); });
+  const tos4 = document.getElementById('tos4');
+  const themeColor = document.querySelector('meta[name="theme-color"]');
+  const applyTheme = () => {
+    document.body.classList.toggle('gem--3d', tos4.checked);
+    themeColor.content = tos4.checked ? '#00aaa9' : '#00e000';
+  };
+  tos4.addEventListener('change', applyTheme);
+  applyTheme();
+</script>
+</body>
+</html>

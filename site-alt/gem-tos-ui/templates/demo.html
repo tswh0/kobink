@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GEM — README.TXT</title>
+<link rel="stylesheet" href="gem.css">
+<style>
+  body { margin: 0; background: #00e000; }
+  .demo-screen { width: 640px; height: 480px; min-height: 480px; position: relative; overflow: hidden; padding: 0; gap: 0; }
+  .demo-window { position: absolute; left: 8px; top: 24px; width: 340px; height: 280px; }
+  .demo-dialog { position: absolute; left: 360px; top: 120px; width: 272px; z-index: 4; }
+  .demo-alert { position: absolute; left: 8px; top: 320px; width: 336px; z-index: 5; }
+  .demo-icons { position: absolute; right: 8px; top: 24px; display: flex; gap: 8px; z-index: 1; }
+  .demo-readme { white-space: pre-wrap; margin: 0; font: inherit; }
+  .demo-cursor { display: inline-block; width: 8px; height: 16px; background: #000; vertical-align: -3px; animation: blink 1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="g-closer" viewBox="0 0 32 32"><path fill="currentColor" d="M12 6h10v2h-10zM14 8h6v2h-6zM10 10h2v2h-2zM14 10h6v2h-6zM22 10h2v2h-2zM10 12h2v2h-2zM16 12h2v2h-2zM22 12h2v2h-2zM10 14h4v2h-4zM16 14h2v2h-2zM20 14h4v2h-4zM10 16h4v2h-4zM20 16h4v2h-4zM10 18h4v2h-4zM16 18h2v2h-2zM20 18h4v2h-4zM10 20h2v2h-2zM16 20h2v2h-2zM22 20h2v2h-2zM10 22h2v2h-2zM14 22h6v2h-6zM22 22h2v2h-2zM14 24h6v2h-6zM12 26h10v2h-10z"/></symbol>
+  <symbol id="g-fuller" viewBox="0 0 32 32"><path fill="currentColor" d="M12 6h10v2h-10zM14 8h6v2h-6zM10 10h14v2h-14zM10 12h4v2h-4zM20 12h4v2h-4zM10 14h4v2h-4zM16 14h2v2h-2zM20 14h4v2h-4zM10 16h6v2h-6zM18 16h6v2h-6zM10 18h4v2h-4zM16 18h2v2h-2zM20 18h4v2h-4zM10 20h4v2h-4zM20 20h4v2h-4zM10 22h14v2h-14zM14 24h6v2h-6zM12 26h10v2h-10z"/></symbol>
+  <symbol id="g-iconify" viewBox="0 0 32 32"><path fill="currentColor" d="M14 18h2v2h-2zM12 20h6v2h-6zM10 22h10v2h-10zM8 24h14v2h-14zM6 26h18v2h-18z"/></symbol>
+  <symbol id="g-floppy" viewBox="0 0 32 32"><path fill="currentColor" d="M4 2h24v2h-24zM4 4h2v2h-2zM26 4h2v2h-2zM4 6h2v2h-2zM8 6h16v2h-16zM26 6h2v2h-2zM4 8h2v2h-2zM8 8h2v2h-2zM22 8h2v2h-2zM26 8h2v2h-2zM4 10h2v2h-2zM8 10h2v2h-2zM12 10h8v2h-8zM22 10h2v2h-2zM26 10h2v2h-2zM4 12h2v2h-2zM8 12h2v2h-2zM12 12h8v2h-8zM22 12h2v2h-2zM26 12h2v2h-2zM4 14h2v2h-2zM8 14h2v2h-2zM22 14h2v2h-2zM26 14h2v2h-2zM4 16h2v2h-2zM8 16h16v2h-16zM26 16h2v2h-2zM4 18h2v2h-2zM26 18h2v2h-2zM4 20h2v2h-2zM26 20h2v2h-2zM4 22h2v2h-2zM26 22h2v2h-2zM4 24h2v2h-2zM26 24h2v2h-2zM4 26h24v2h-24z"/></symbol>
+  <symbol id="g-folder" viewBox="0 0 32 32"><path fill="currentColor" d="M8 4h8v2h-8zM6 6h2v2h-2zM16 6h2v2h-2zM6 8h2v2h-2zM16 8h2v2h-2zM6 10h2v2h-2zM16 10h16v2h-16zM6 12h2v2h-2zM30 12h2v2h-2zM6 14h2v2h-2zM30 14h2v2h-2zM6 16h2v2h-2zM30 16h2v2h-2zM6 18h2v2h-2zM30 18h2v2h-2zM6 20h2v2h-2zM30 20h2v2h-2zM6 22h2v2h-2zM30 22h2v2h-2zM6 24h2v2h-2zM30 24h2v2h-2zM6 26h26v2h-26z"/></symbol>
+  <symbol id="g-trash" viewBox="0 0 32 32"><path fill="currentColor" d="M12 2h8v2h-8zM6 6h20v2h-20zM6 8h2v2h-2zM24 8h2v2h-2zM6 10h2v2h-2zM10 10h2v2h-2zM14 10h2v2h-2zM18 10h2v2h-2zM24 10h2v2h-2zM6 12h2v2h-2zM24 12h2v2h-2zM6 14h2v2h-2zM10 14h2v2h-2zM14 14h2v2h-2zM18 14h2v2h-2zM24 14h2v2h-2zM6 16h2v2h-2zM24 16h2v2h-2zM6 18h2v2h-2zM10 18h2v2h-2zM14 18h2v2h-2zM18 18h2v2h-2zM24 18h2v2h-2zM6 20h2v2h-2zM24 20h2v2h-2zM6 22h2v2h-2zM10 22h2v2h-2zM14 22h2v2h-2zM18 22h2v2h-2zM24 22h2v2h-2zM6 24h2v2h-2zM24 24h2v2h-2zM6 26h20v2h-20z"/></symbol>
+</svg>
+
+<div class="gem gem-screen demo-screen">
+
+  <nav class="gem-menubar" aria-label="Main">
+    <div class="gem-menuwrap"><button class="gem-appname" data-menu="m-desk" aria-haspopup="true" aria-expanded="false">Desk</button>
+      <ul class="gem-dropdown" id="m-desk" role="menu">
+        <li><a href="#">GEM Desktop</a></li>
+        <li class="gem-sep" role="separator"></li>
+        <li><a href="#" class="is-disabled" aria-disabled="true">Control Panel</a></li>
+        <li><a href="#">Install Devices...</a></li>
+        <li class="gem-sep" role="separator"></li>
+        <li><a href="#">About GEM...</a></li>
+      </ul>
+    </div>
+    <div class="gem-menuwrap"><button data-menu="m-file" aria-haspopup="true" aria-expanded="false">File</button>
+      <ul class="gem-dropdown" id="m-file" role="menu">
+        <li><a href="#">New <span class="gem-key">^N</span></a></li>
+        <li><a href="#">Open... <span class="gem-key">^O</span></a></li>
+        <li class="gem-sep" role="separator"></li>
+        <li><a href="#">Save <span class="gem-key">^S</span></a></li>
+        <li><a href="#">Save as...</a></li>
+        <li class="gem-sep" role="separator"></li>
+        <li><a href="#">Page Setup...</a></li>
+        <li><a href="#">Print <span class="gem-key">^P</span></a></li>
+        <li class="gem-sep" role="separator"></li>
+        <li><a href="#">Quit <span class="gem-key">^Q</span></a></li>
+      </ul>
+    </div>
+    <div class="gem-menuwrap"><button data-menu="m-edit" aria-haspopup="true" aria-expanded="false">Edit</button>
+      <ul class="gem-dropdown" id="m-edit" role="menu">
+        <li><a href="#">Undo</a></li>
+        <li class="gem-sep" role="separator"></li>
+        <li><a href="#">Cut <span class="gem-key">^X</span></a></li>
+        <li><a href="#">Copy <span class="gem-key">^C</span></a></li>
+        <li><a href="#">Paste <span class="gem-key">^V</span></a></li>
+        <li class="gem-sep" role="separator"></li>
+        <li><a href="#">Select All <span class="gem-key">^A</span></a></li>
+      </ul>
+    </div>
+    <div class="gem-menuwrap"><button data-menu="m-view" aria-haspopup="true" aria-expanded="false">Options</button>
+      <ul class="gem-dropdown" id="m-view" role="menu">
+        <li><a href="#">Show Toolbar</a></li>
+        <li><a href="#">Show Information Line</a></li>
+        <li class="gem-sep" role="separator"></li>
+        <li><a href="#">Colours...</a></li>
+      </ul>
+    </div>
+    <span class="gem-spacer"></span>
+    <div class="gem-menuwrap"><button data-menu="m-help" aria-haspopup="true" aria-expanded="false">Help</button>
+      <ul class="gem-dropdown gem-dropdown--right" id="m-help" role="menu">
+        <li><a href="#">Contents</a></li>
+        <li><a href="#">Index</a></li>
+        <li class="gem-sep" role="separator"></li>
+        <li><a href="#">Keys</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <section class="gem-window demo-window" aria-label="README.TXT">
+    <div class="gem-titlebar">
+      <button class="gem-gadget" aria-label="Close"><svg><use href="#g-closer"/></svg></button>
+      <div class="gem-title"><span>README.TXT</span></div>
+      <button class="gem-gadget gem-gadget--right" aria-label="Iconify"><svg><use href="#g-iconify"/></svg></button>
+      <button class="gem-gadget gem-gadget--right" aria-label="Full size"><svg><use href="#g-fuller"/></svg></button>
+    </div>
+    <div class="gem-infoline">1.4 KB used · 640 x 400 · 16 colours</div>
+    <div class="gem-toolbar" role="toolbar" aria-label="Editor">
+      <button class="gem-tool" aria-label="Open"><svg><use href="#g-folder"/></svg></button>
+      <button class="gem-tool" aria-label="Save"><svg><use href="#g-floppy"/></svg></button>
+      <span class="gem-sep-v"></span>
+      <button class="gem-tool is-pressed" aria-label="Bold"><b>B</b></button>
+      <button class="gem-tool" aria-label="Italic"><i>I</i></button>
+      <button class="gem-tool" aria-label="Underline"><u>U</u></button>
+    </div>
+    <div class="gem-scroll">
+      <div class="gem-scroll__view">
+        <div class="gem-body">
+          <pre class="demo-readme">GEM USER INTERFACE GUIDELINES
+
+Maintaining consistent elements of style in a user-interface is an important aspect of programming which should not be overlooked. An extremely powerful application will have its usefulness compromised by an interface that is unlike the majority of other applications a user will be exposed to.
+
+In a case where you provide an enhanced interface element that departs from these specifications, you should at least allow the user to disable the option in a 'Settings...' dialog.
+
+  · The Basics
+  · GEM Windows
+  · Dialog Boxes
+  · Alerts
+  · Progress Indicators
+  · Toolbars
+  · GEM Menus
+
+<span class="demo-cursor"></span></pre>
+        </div>
+      </div>
+      <div class="gem-scroll__v">
+        <button class="gem-scroll__arrow gem-scroll__arrow--up" aria-label="Up"></button>
+        <div class="gem-scroll__track"><div class="gem-scroll__elevator"></div></div>
+        <button class="gem-scroll__arrow gem-scroll__arrow--down" aria-label="Down"></button>
+      </div>
+      <div class="gem-scroll__h">
+        <button class="gem-scroll__arrow gem-scroll__arrow--left" aria-label="Left"></button>
+        <div class="gem-scroll__track"><div class="gem-scroll__elevator"></div></div>
+        <button class="gem-scroll__arrow gem-scroll__arrow--right" aria-label="Right"></button>
+      </div>
+      <div class="gem-sizer"></div>
+    </div>
+  </section>
+
+  <section class="gem-dialog demo-dialog" aria-label="Settings" role="dialog" aria-modal="false">
+    <div class="gem-titlebar">
+      <button class="gem-gadget" aria-label="Close"><svg><use href="#g-closer"/></svg></button>
+      <div class="gem-title"><span>User interface</span></div>
+    </div>
+    <div class="gem-dialog__body">
+      <fieldset class="gem-group">
+        <legend>Display</legend>
+        <div class="gem-check-row"><input class="gem-check" type="checkbox" id="c1" checked><label for="c1">B&amp;W desktop</label></div>
+        <div class="gem-check-row"><input class="gem-check" type="checkbox" id="c2"><label for="c2">Standard fileselector</label></div>
+      </fieldset>
+
+      <fieldset class="gem-group">
+        <legend>Control elements</legend>
+        <div class="gem-form">
+          <label for="s1">Checkbox:</label>
+          <select class="gem-select" id="s1"><option>Cross</option><option>Tick</option></select>
+          <label for="s2">Popup:</label>
+          <select class="gem-select" id="s2"><option>Selected bg</option><option>Desktop</option></select>
+        </div>
+        <div class="gem-radio-row" style="margin-top:8px">
+          <input class="gem-radio" type="radio" name="r" id="r1" checked><label for="r1">Button</label>
+          <input class="gem-radio" type="radio" name="r" id="r2"><label for="r2">Wedge</label>
+        </div>
+      </fieldset>
+    </div>
+    <div class="gem-dialog__buttons">
+      <button class="gem-btn is-default"><u>O</u>K</button>
+      <button class="gem-btn"><u>C</u>ancel</button>
+      <button class="gem-btn"><u>H</u>elp</button>
+    </div>
+  </section>
+
+  <section class="gem-dialog demo-alert" role="alertdialog" aria-label="Alert">
+    <div class="gem-titlebar">
+      <button class="gem-gadget" aria-label="Close"><svg><use href="#g-closer"/></svg></button>
+      <div class="gem-title"><span>GRISMO</span></div>
+    </div>
+    <div class="gem-dialog__body">
+      <div class="gem-alert">
+        <div class="gem-alert__icon">?</div>
+        <div class="gem-alert__text">The printer does not reply. Please check whether it is connected and online.</div>
+      </div>
+    </div>
+    <div class="gem-dialog__buttons">
+      <button class="gem-btn is-default"><u>R</u>etry</button>
+      <button class="gem-btn"><u>C</u>ancel</button>
+      <button class="gem-btn"><u>H</u>elp</button>
+    </div>
+  </section>
+
+  <div class="demo-icons">
+    <a class="gem-icon" href="#"><svg><use href="#g-floppy"/></svg><span class="gem-icon__label">FLOPPY DISK</span></a>
+    <a class="gem-icon is-selected" href="#"><svg><use href="#g-folder"/></svg><span class="gem-icon__label">DOCUMENTS</span></a>
+    <a class="gem-icon" href="#"><svg><use href="#g-trash"/></svg><span class="gem-icon__label">TRASH</span></a>
+  </div>
+</div>
+
+<script>
+  const closeMenus = () => {
+    document.querySelectorAll('.gem-dropdown.is-open').forEach(m => m.classList.remove('is-open'));
+    document.querySelectorAll('[data-menu][aria-expanded="true"]').forEach(b => { b.classList.remove('is-open'); b.setAttribute('aria-expanded', 'false'); });
+  };
+  document.querySelectorAll('[data-menu]').forEach(btn => {
+    btn.addEventListener('click', event => {
+      event.stopPropagation();
+      const menu = document.getElementById(btn.dataset.menu);
+      const wasOpen = menu.classList.contains('is-open');
+      closeMenus();
+      if (!wasOpen) { menu.classList.add('is-open'); btn.classList.add('is-open'); btn.setAttribute('aria-expanded', 'true'); }
+    });
+  });
+  document.addEventListener('click', closeMenus);
+  document.addEventListener('keydown', event => { if (event.key === 'Escape') closeMenus(); });
+  closeMenus();
+</script>
+</body>
+</html>
