@@ -12,8 +12,8 @@ the favicons. Open `index.html` directly, or:
 python3 -m http.server 8123 --directory site-alt
 ```
 
-This folder is not in the deploy path: `site/` is still what Caddy serves at
-kobink.ewlf.de.
+The live install page at kobink.ewlf.de is retired; the guide is now
+<https://blog.ewlf.de/posts/kobink/>. This folder is a design demo only.
 
 ## The skill
 
