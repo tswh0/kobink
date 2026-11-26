@@ -47,6 +47,10 @@
 .gem *::before,
 .gem *::after { box-sizing: border-box; }
 
+.gem code,
+.gem kbd,
+.gem samp { font: inherit; }
+
 .gem a { color: var(--gem-black); text-decoration: underline; text-underline-offset: 2px; }
 .gem a:hover { background: var(--gem-black); color: var(--gem-white); text-decoration: none; }
 

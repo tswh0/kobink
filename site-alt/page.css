@@ -96,7 +96,7 @@ a.gem-btn { text-decoration: none; }
 .doc li code {
   background: #000;
   color: #fff;
-  padding: 0 4px;
+  padding: 0 8px;
 }
 
 .doc__end { margin: 24px 0 0; }
