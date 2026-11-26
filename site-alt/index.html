@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>kobink · your own Kobo store</title>
+<meta name="description" content="Kobink answers the Kobo store's address from your own machine and serves the EPUBs in a folder, with a shelf and reader in the browser.">
+<meta name="theme-color" content="#00aaa9">
+<link rel="stylesheet" href="gem.css">
+<link rel="stylesheet" href="page.css">
+<link rel="icon" href="favicon.ico" sizes="any">
+<link rel="icon" type="image/png" href="favicon-32.png" sizes="32x32">
+<link rel="icon" type="image/png" href="favicon-192.png" sizes="192x192">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+</head>
+<body class="gem gem-desktop gem--3d" id="top">
+<div class="page">
+
+  <nav class="gem-menubar" aria-label="Main">
+    <div class="gem-menuwrap"><button class="gem-appname" data-menu="m-app" aria-haspopup="true" aria-expanded="false">kobink</button>
+      <ul class="gem-dropdown" id="m-app" role="menu">
+        <li><a href="#top">About kobink</a></li>
+        <li class="gem-sep" role="separator"></li>
+        <li><a href="https://github.com/tswh0/kobink">Source on GitHub</a></li>
+        <li><a href="https://github.com/tswh0/kobink/releases">Releases</a></li>
+        <li><a href="https://github.com/tswh0/kobink/blob/main/LICENSE">AGPL-3.0</a></li>
+      </ul>
+    </div>
+    <div class="gem-menuwrap"><button data-menu="m-file" aria-haspopup="true" aria-expanded="false">File</button>
+      <ul class="gem-dropdown" id="m-file" role="menu">
+        <li><a href="#install">Install</a></li>
+        <li><a href="#read">Read in the browser</a></li>
+        <li><a href="#drop">Drop a book</a></li>
+        <li class="gem-sep" role="separator"></li>
+        <li><a href="#does">What it does</a></li>
+        <li><a href="#notes">Notes</a></li>
+        <li class="gem-sep" role="separator"></li>
+        <li><a href="#contents" data-open-contents>Show Contents</a></li>
+      </ul>
+    </div>
+    <span class="gem-spacer"></span>
+    <div class="gem-menuwrap"><button data-menu="m-help" aria-haspopup="true" aria-expanded="false">Help</button>
+      <ul class="gem-dropdown" id="m-help" role="menu">
+        <li><a href="https://github.com/tswh0/kobink/blob/main/README.md">README</a></li>
+        <li><a href="https://github.com/ciromattia/kcc">KCC</a></li>
+        <li class="gem-sep" role="separator"></li>
+        <li><a href="https://github.com/tswh0/kobink/issues">Report an issue</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <main class="page__main">
+    <section class="gem-window page__doc" aria-label="KOBINK.TXT">
+      <div class="gem-titlebar">
+        <div class="gem-title"><span>KOBINK.TXT</span></div>
+      </div>
+      <div class="gem-infoline">v1.7.0 · AGPL-3.0 · Kobo sync</div>
+      <div class="gem-body">
+        <article class="doc">
+
+          <div class="hero">
+            <div class="hero__head">
+              <div class="hero__mark" aria-hidden="true">
+                <svg viewBox="0 0 32 32" shape-rendering="crispEdges">
+                  <rect x="4" y="13" width="7" height="18" fill="#000"/>
+                  <rect x="5" y="14" width="5" height="16" fill="#fff"/>
+                  <rect x="12" y="7" width="7" height="24" fill="#000"/>
+                  <rect x="13" y="8" width="5" height="22" fill="#db6d00"/>
+                  <rect x="20" y="11" width="7" height="20" fill="#000"/>
+                  <rect x="21" y="12" width="5" height="18" fill="#fff"/>
+                  <rect x="2" y="30" width="28" height="2" fill="#000"/>
+                </svg>
+              </div>
+              <h1>Your own Kobo store</h1>
+            </div>
+            <p class="lede">Kobo only downloads from Kobo. Kobink answers at that address instead, and hands out the EPUBs already sitting in a folder on your machine. There is a shelf in the browser too, for when the device is not at hand.</p>
+            <p class="hero__actions">
+              <a class="gem-btn is-default" href="#install">Install</a>
+              <a class="gem-btn" href="https://github.com/tswh0/kobink">Source on GitHub</a>
+            </p>
+          </div>
+
+          <p>A Kobo asks its store what it owns. Kobink replies with the files in your library, and the reader treats it as a normal sync. No account, no upload, no database.</p>
+
+          <h2 id="install">Install</h2>
+
+          <h3>1. Start the container</h3>
+          <p><code>PUBLIC_URL</code> has to be an address the reader can reach, because it ends up inside every download link. If the device can open it in a browser, it is right.</p>
+<pre>services:
+  kobink:
+    image: ghcr.io/tswh0/kobink:latest
+    restart: unless-stopped
+    user: "1000:1000"
+    ports: ["3000:3000"]
+    environment:
+      PUBLIC_URL: http://192.168.1.10:3000
+    volumes:
+      - /path/to/books:/library:ro
+      - ./data:/app/data</pre>
+          <p>Run <code>chown -R 1000:1000 ./data</code> once, so the container can write the key file.</p>
+
+          <h3>2. Read the key</h3>
+          <p>The first start generates the key and prints it together with the endpoint.</p>
+<pre>docker compose up -d
+docker compose logs kobink</pre>
+
+          <h3>3. Point the reader at it</h3>
+          <p>Edit <code>.kobo/Kobo/Kobo eReader.conf</code> on the device, then press Sync.</p>
+<pre>[OneStoreServices]
+api_endpoint=http://192.168.1.10:3000/PASTE-YOUR-KEY-HERE/kobo</pre>
+          <p>The path stops at <code>/kobo</code>. The device appends <code>/v1</code> itself.</p>
+
+          <h2 id="read">Read in the browser</h2>
+          <p>Open the same address on a phone or a desktop and paste the key. The library is the root: a shelf of covers, and a tap opens the book, paginated for EPUBs and page by page for the fixed-layout kepubs KCC makes.</p>
+          <p>Position goes both ways. Where you stop on the device is where the browser opens, and a page turned in the browser reaches the device at its next sync. If the two disagree, the book with the most pages read wins.</p>
+          <p>It is an extension of the Kobo, not a reader of its own: no highlights, notes, dictionary or library management. Added to a phone's home screen it opens full screen. A fixed-layout book can be saved from the reading bar and read with no connection; progress made offline lands on the server at the next open.</p>
+
+          <h2 id="drop">Drop a book</h2>
+          <p>Upload lives at <code>/drop</code>: drag EPUB, CBZ or PDF, several at once. EPUB is copied as it is; CBZ and PDF are converted for the reader you pick, which needs the bigger image, a writable library and <code>LIBRARY_WRITE=:rw</code>:</p>
+<pre>    image: ghcr.io/tswh0/kobink:conversion
+    environment:
+      LIBRARY_WRITE: ":rw"
+    volumes:
+      - /path/to/books:/library:rw</pre>
+          <p>Deleting a book on the reader moves the file into <code>.kobink-trash/</code> inside the library. <code>LIBRARY_TRASH=off</code> deletes it outright. A CBZ copied into the folder by hand is counted in the scan but never synced; it has to come through <code>/drop</code> to be converted.</p>
+
+          <h2 id="does">What it does</h2>
+          <ul>
+            <li>Covers are cut out of each book at the sizes the device asks for.</li>
+            <li>KCC books are advertised as KEPUB and fixed-layout books as EPUB3FL, which is what keeps manga filling the page.</li>
+            <li>Volumes arrive as a series with the right numbering, from the book's metadata or from its title (<code>Fire Punch v03</code>).</li>
+            <li>A sync with nothing new answers <code>[]</code> in a few kilobytes; downloads stream and answer <code>Range</code>, so an interrupted transfer resumes.</li>
+            <li>The key sits in the URL path. Everything outside it answers 404.</li>
+            <li>No database. One container, two folders.</li>
+          </ul>
+
+          <h2 id="notes">Notes</h2>
+          <ul>
+            <li>The library is read again every ten minutes: drop a file in, wait, sync. <code>LIBRARY_REFRESH_SECONDS=0</code> turns the timer off.</li>
+            <li>The container runs as uid 1000, so the library has to be readable by that user.</li>
+            <li>Reading progress is one JSON per book in <code>.kobink-progress/</code>, and goes with the book when it is deleted.</li>
+            <li><code>COVER_CACHE_DAYS</code> and <code>TRASH_DAYS</code> (default 30, <code>0</code> keeps forever) prune the cover cache and the trash.</li>
+            <li>HTTP on your own network is fine. Behind a proxy, use HTTPS and keep the link to yourself. Offline copies need HTTPS or localhost, since service workers do not run on plain HTTP; the reader works either way.</li>
+            <li><code>API_KEY</code> picks the key yourself instead of the generated one.</li>
+          </ul>
+
+          <p class="doc__end"><a class="gem-btn is-default" href="#top">Back to top</a></p>
+        </article>
+      </div>
+    </section>
+
+    <aside class="page__side" id="contents">
+      <section class="gem-window" aria-label="Contents">
+        <div class="gem-titlebar">
+          <button class="gem-gadget" aria-label="Close contents" data-close-contents><svg viewBox="0 0 32 32" shape-rendering="crispEdges" fill="currentColor"><path d="M12 6h10v2h-10zM14 8h6v2h-6zM10 10h2v2h-2zM14 10h6v2h-6zM22 10h2v2h-2zM10 12h2v2h-2zM16 12h2v2h-2zM22 12h2v2h-2zM10 14h4v2h-4zM16 14h2v2h-2zM20 14h4v2h-4zM10 16h4v2h-4zM20 16h4v2h-4zM10 18h4v2h-4zM16 18h2v2h-2zM20 18h4v2h-4zM10 20h2v2h-2zM16 20h2v2h-2zM22 20h2v2h-2zM10 22h2v2h-2zM14 22h6v2h-6zM22 22h2v2h-2zM14 24h6v2h-6zM12 26h10v2h-10z"/></svg></button>
+          <div class="gem-title"><span>CONTENTS</span></div>
+        </div>
+        <div class="gem-body">
+          <ul class="side-list">
+            <li><a href="#install">Install</a></li>
+            <li><a href="#read">Read in the browser</a></li>
+            <li><a href="#drop">Drop a book</a></li>
+            <li><a href="#does">What it does</a></li>
+            <li><a href="#notes">Notes</a></li>
+            <li><a href="https://github.com/tswh0/kobink">Source on GitHub</a></li>
+          </ul>
+          <fieldset class="gem-group side-group">
+            <legend>System</legend>
+            <dl class="sys">
+              <dt>Image</dt><dd>ghcr.io/tswh0/kobink:latest</dd>
+              <dt>Runtime</dt><dd>2 MB, EPUB only</dd>
+              <dt>Conversion</dt><dd>:conversion, KCC inside</dd>
+              <dt>Port</dt><dd>3000</dd>
+              <dt>Data</dt><dd>./data</dd>
+              <dt>Licence</dt><dd>AGPL-3.0</dd>
+            </dl>
+          </fieldset>
+          <div class="gem-check-row side-check">
+            <input class="gem-check" type="checkbox" id="tos4" checked>
+            <label for="tos4">TOS 4 colours</label>
+          </div>
+        </div>
+      </section>
+    </aside>
+  </main>
+
+  <footer class="gem-status page__foot">
+    <span>kobink 1.7.0</span>
+    <span>AGPL-3.0</span>
+    <span class="gem-grow"></span>
+    <a href="https://github.com/potatoeggy/kobink">fork of potatoeggy/kobink</a>
+    <span><a href="#contents" data-open-contents>CONTENTS</a></span>
+  </footer>
+</div>
+
+<script>
+  const closeMenus = () => {
+    document.querySelectorAll('.gem-dropdown.is-open').forEach(m => m.classList.remove('is-open'));
+    document.querySelectorAll('[data-menu][aria-expanded="true"]').forEach(b => { b.classList.remove('is-open'); b.setAttribute('aria-expanded', 'false'); });
+  };
+  document.querySelectorAll('[data-menu]').forEach(btn => {
+    btn.addEventListener('click', event => {
+      event.stopPropagation();
+      const menu = document.getElementById(btn.dataset.menu);
+      const wasOpen = menu.classList.contains('is-open');
+      closeMenus();
+      if (!wasOpen) { menu.classList.add('is-open'); btn.classList.add('is-open'); btn.setAttribute('aria-expanded', 'true'); }
+    });
+  });
+  document.addEventListener('click', closeMenus);
+  document.addEventListener('keydown', event => { if (event.key === 'Escape') closeMenus(); });
+
+  const contents = document.getElementById('contents');
+  document.querySelectorAll('[data-close-contents]').forEach(el => el.addEventListener('click', () => { contents.hidden = true; }));
+  document.querySelectorAll('[data-open-contents]').forEach(el => el.addEventListener('click', () => { contents.hidden = false; }));
+
+  const tos4 = document.getElementById('tos4');
+  const themeColor = document.querySelector('meta[name="theme-color"]');
+  const applyTheme = () => {
+    document.body.classList.toggle('gem--3d', tos4.checked);
+    themeColor.content = tos4.checked ? '#00aaa9' : '#00e000';
+  };
+  tos4.addEventListener('change', applyTheme);
+  applyTheme();
+</script>
+</body>
+</html>
